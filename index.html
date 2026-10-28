@@ -240,7 +240,7 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
   <div class="brand"><i></i>Ponto</div>
   <span class="who" id="who"></span>
   <button class="btn" id="btnChat">Chat</button>
-  <button class="btn" id="btnProjects">Projetos</button>  <button class="btn" id="btnProjects">Projetos</button>
+  <button class="btn" id="btnProjects">Projetos</button>
   <button class="btn" id="btnBackup">Backup e exportar</button>
   <button class="btn" id="btnAccount">Minha conta</button>
   <button class="btn" id="btnLogout">Sair</button>
@@ -1052,7 +1052,7 @@ $('#chatInput').addEventListener('keydown',function(ev){
 });
 $('#dlgChat').addEventListener('close',function(){clearInterval(chatPoll);chatPoll=null;chatContact=null;chatLastSignature=''});
 
-document.addEventListener('visibilitychange',function(){document.addEventListener('visibilitychange',function(){
+document.addEventListener('visibilitychange',function(){
   if(!currentUid)return;
   if(document.hidden){flushNow()}
   else{chain=chain.then(function(){return loadAll()}).catch(function(){})}
