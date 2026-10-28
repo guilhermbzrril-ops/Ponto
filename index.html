@@ -201,6 +201,26 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 .msg.ok{color:var(--ok)}
 .who{color:var(--muted);font-size:13px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (max-width:820px){.who{display:none}}
+
+/* chat individual */
+.chat-layout{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:360px;max-height:65vh}
+.chat-contacts{border-right:1px solid var(--line);overflow:auto;padding:8px}
+.chat-contact{display:block;width:100%;text-align:left;padding:10px;border:1px solid transparent;border-radius:8px;background:transparent;overflow-wrap:anywhere}
+.chat-contact:hover,.chat-contact.active{background:var(--panel2);border-color:var(--line)}
+.chat-contact small{display:block;color:var(--muted);font-size:12px;margin-top:3px}
+.chat-main{display:flex;flex-direction:column;min-width:0;min-height:360px}
+.chat-head{padding:10px 14px;border-bottom:1px solid var(--line);font-weight:600;overflow-wrap:anywhere}
+.chat-messages{flex:1;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:14px;background:var(--bg)}
+.chat-empty{color:var(--muted);text-align:center;margin:auto;padding:20px}
+.chat-bubble{max-width:85%;padding:9px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow-wrap:anywhere;white-space:pre-wrap}
+.chat-bubble.mine{align-self:flex-end;background:color-mix(in srgb,var(--accent) 18%,var(--panel));border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.chat-bubble small{display:block;color:var(--muted);font-size:11px;margin-top:4px}
+.chat-compose{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line)}
+.chat-compose textarea{flex:1;resize:vertical;min-height:42px;max-height:120px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);padding:10px;color:var(--text);font:inherit}
+.chat-note{padding:8px 14px;color:var(--muted);font-size:12px;border-top:1px solid var(--line)}
+@media(max-width:620px){.chat-layout{grid-template-columns:110px minmax(0,1fr)}.chat-contact{padding:8px 5px;font-size:13px}.chat-compose{flex-wrap:wrap}.chat-compose textarea{flex-basis:100%}.chat-main{min-height:320px}}
+
+</style>@media (max-width:820px){.who{display:none}}
 </style>
 </head>
 <body>
@@ -220,7 +240,8 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 <header class="top">
   <div class="brand"><i></i>Ponto</div>
   <span class="who" id="who"></span>
-  <button class="btn" id="btnProjects">Projetos</button>
+  <button class="btn" id="btnChat">Chat</button>
+  <button class="btn" id="btnProjects">Projetos</button>  <button class="btn" id="btnProjects">Projetos</button>
   <button class="btn" id="btnBackup">Backup e exportar</button>
   <button class="btn" id="btnAccount">Minha conta</button>
   <button class="btn" id="btnLogout">Sair</button>
@@ -299,7 +320,25 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
   </div>
 </dialog>
 
-<!-- Minha conta -->
+
+<!-- Chat individual -->
+<dialog id="dlgChat" style="width:min(760px,96vw)">
+  <div class="dh"><h2>Chat individual</h2><button class="icon-btn" data-close aria-label="Fechar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="chat-layout">
+    <aside class="chat-contacts" id="chatContacts"><p class="hint">Carregando pessoas…</p></aside>
+    <section class="chat-main">
+      <div class="chat-head" id="chatHead">Selecione uma pessoa</div>
+      <div class="chat-messages" id="chatMessages" aria-live="polite"><p class="chat-empty">Escolha alguém na lista para abrir a conversa.</p></div>
+      <form class="chat-compose" id="chatForm">
+        <textarea id="chatInput" maxlength="2000" rows="2" placeholder="Escreva uma mensagem…" aria-label="Mensagem" disabled></textarea>
+        <button class="btn primary" id="chatSend" type="submit" disabled>Enviar</button>
+      </form>
+    </section>
+  </div>
+  <p class="chat-note">As conversas são individuais. As mensagens ficam salvas na conta do sistema.</p>
+</dialog>
+
+<!-- Minha conta --><!-- Minha conta -->
 <dialog id="dlgAccount">
   <div class="dh"><h2>Minha conta</h2><button class="icon-btn" data-close aria-label="Fechar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <div class="db">
@@ -924,7 +963,97 @@ async function changePassword(){
 $('#aSave').addEventListener('click',changePassword);
 ['#aCur','#aNew','#aNew2'].forEach(function(q){$(q).addEventListener('keydown',function(ev){if(ev.key==='Enter')changePassword()})});
 
-document.addEventListener('visibilitychange',function(){
+
+/* ---------- chat individual ---------- */
+var chatContact=null,chatContacts=[],chatPoll=null,chatLoading=false,chatLastSignature='';
+function chatTime(value){
+  var d=new Date(value);
+  return isNaN(d.getTime())?'':d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+function chatMessage(msg){
+  var box=document.createElement('div');
+  box.className='chat-bubble'+(msg.sender_id===currentUid?' mine':'');
+  var body=document.createElement('div');body.textContent=msg.body||'';
+  var meta=document.createElement('small');meta.textContent=(msg.sender_id===currentUid?'Você':'')+' · '+chatTime(msg.created_at);
+  box.appendChild(body);box.appendChild(meta);return box;
+}
+function renderChatContacts(){
+  var root=$('#chatContacts');
+  if(!chatContacts.length){root.innerHTML='<p class="hint">Nenhuma outra pessoa cadastrada.</p>';return}
+  root.innerHTML=chatContacts.map(function(p){
+    return '<button type="button" class="chat-contact'+(chatContact&&chatContact.id===p.id?' active':'')+'" data-chat-contact="'+esc(p.id)+'">'+esc(p.email||'Usuário')+'<small>'+(chatContact&&chatContact.id===p.id?'Conversa aberta':'Abrir conversa')+'</small></button>';
+  }).join('');
+}
+async function loadChatContacts(){
+  if(!sb||!currentUid)return;
+  $('#chatContacts').innerHTML='<p class="hint">Carregando pessoas…</p>';
+  try{
+    var r=await chk(sb.from('profiles').select('id,email').neq('id',currentUid).order('email',{ascending:true}));
+    chatContacts=(r.data||[]).filter(function(p){return p.id&&p.id!==currentUid});
+    renderChatContacts();
+  }catch(err){
+    $('#chatContacts').innerHTML='<p class="hint">Não foi possível carregar as pessoas. Execute o arquivo supabase-chat.sql no SQL Editor do Supabase e tente novamente.</p>';
+  }
+}
+async function loadChatMessages(force){
+  if(!sb||!currentUid||!chatContact||chatLoading)return;
+  chatLoading=true;
+  try{
+    var r=await chk(sb.from('chat_messages').select('id,sender_id,recipient_id,body,created_at')
+      .or('and(sender_id.eq.'+currentUid+',recipient_id.eq.'+chatContact.id+'),and(sender_id.eq.'+chatContact.id+',recipient_id.eq.'+currentUid+')')
+      .order('created_at',{ascending:true}).limit(300));
+    var rows=r.data||[];
+    var sig=rows.length?rows[rows.length-1].id+':'+rows.length:'empty';
+    if(force||sig!==chatLastSignature){
+      chatLastSignature=sig;
+      var root=$('#chatMessages');root.replaceChildren();
+      if(!rows.length){var empty=document.createElement('p');empty.className='chat-empty';empty.textContent='Ainda não há mensagens. Dê início à conversa.';root.appendChild(empty)}
+      else rows.forEach(function(m){root.appendChild(chatMessage(m))});
+      root.scrollTop=root.scrollHeight;
+    }
+  }catch(err){if(force)toast('Não foi possível carregar as mensagens. Verifique a configuração do chat no Supabase.')}
+  finally{chatLoading=false}
+}
+async function openChat(){
+  if(!currentUid){toast('Entre na sua conta para usar o chat.');return}
+  chatContact=null;chatLastSignature='';
+  $('#chatHead').textContent='Selecione uma pessoa';
+  $('#chatMessages').innerHTML='<p class="chat-empty">Escolha alguém na lista para abrir a conversa.</p>';
+  $('#chatInput').disabled=true;$('#chatSend').disabled=true;
+  $('#dlgChat').showModal();
+  await loadChatContacts();
+  clearInterval(chatPoll);
+  chatPoll=setInterval(function(){if($('#dlgChat').open&&chatContact)loadChatMessages(false)},4000);
+}
+$('#btnChat').addEventListener('click',openChat);
+$('#chatContacts').addEventListener('click',function(ev){
+  var b=ev.target.closest('[data-chat-contact]');if(!b)return;
+  chatContact=chatContacts.find(function(p){return p.id===b.getAttribute('data-chat-contact')})||null;
+  chatLastSignature='';
+  renderChatContacts();
+  $('#chatHead').textContent=chatContact?chatContact.email:'Selecione uma pessoa';
+  $('#chatInput').disabled=!chatContact;$('#chatSend').disabled=!chatContact;
+  loadChatMessages(true);if(chatContact)$('#chatInput').focus();
+});
+$('#chatForm').addEventListener('submit',async function(ev){
+  ev.preventDefault();
+  var body=$('#chatInput').value.trim();
+  if(!body||!chatContact||!currentUid||!sb)return;
+  var btn=$('#chatSend');btn.disabled=true;
+  try{
+    var r=await chk(sb.from('chat_messages').insert({sender_id:currentUid,recipient_id:chatContact.id,body:body}).select('id,sender_id,recipient_id,body,created_at').single());
+    $('#chatInput').value='';
+    chatLastSignature='';
+    await loadChatMessages(true);
+  }catch(err){toast('Não foi possível enviar. Verifique a configuração do chat no Supabase.')}
+  finally{btn.disabled=!chatContact}
+});
+$('#chatInput').addEventListener('keydown',function(ev){
+  if(ev.key==='Enter'&&!ev.shiftKey){ev.preventDefault();$('#chatForm').requestSubmit()}
+});
+$('#dlgChat').addEventListener('close',function(){clearInterval(chatPoll);chatPoll=null;chatContact=null;chatLastSignature=''});
+
+document.addEventListener('visibilitychange',function(){document.addEventListener('visibilitychange',function(){
   if(!currentUid)return;
   if(document.hidden){flushNow()}
   else{chain=chain.then(function(){return loadAll()}).catch(function(){})}
