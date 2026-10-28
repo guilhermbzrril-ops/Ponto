@@ -288,6 +288,10 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 <dialog id="dlgProjects">
   <div class="dh"><h2>Projetos</h2><button class="icon-btn" data-close aria-label="Fechar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <div class="db">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="btn primary" id="odooImport" type="button">Importar tarefas do Odoo</button>
+      <span class="hint" id="odooImportStatus">Importa nomes das tarefas e projetos disponíveis na sua conta Odoo.</span>
+    </div>
     <div class="pform">
       <input id="pName" placeholder="Nome do projeto" maxlength="200">
       <input id="pClient" placeholder="Cliente" maxlength="200">
@@ -367,6 +371,8 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 (function(){
 'use strict';
 var PREFS_KEY='ponto.prefs.v1';
+var ODOO_TASKS_KEY='oxfy.odooTasks.v1';
+var odooTasks=[];
 var SUPABASE_URL='https://wfkypsbbfbtpsxlufozo.supabase.co';
 var SUPABASE_KEY='sb_publishable_6qKuHStezjK4YauR7DgsAQ_FGEn43re';
 var sb=null,currentUid,currentUser=null;
@@ -395,10 +401,12 @@ function toMs(dateStr,timeStr){var t=timeStr.length===5?timeStr+':00':timeStr;re
 function toast(msg){var t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast.h);toast.h=setTimeout(function(){t.classList.remove('show')},2600)}
 
 function load(){
-  /* só preferências visuais ficam neste navegador; os dados ficam no Supabase */
+  /* preferências visuais e cache das tarefas importadas ficam neste navegador */
   try{
     var raw=localStorage.getItem(PREFS_KEY);
     if(raw){var d=JSON.parse(raw);state.prefs=Object.assign({group:true,theme:''},d.prefs||{});}
+    var cached=localStorage.getItem(ODOO_TASKS_KEY);
+    if(cached){var parsed=JSON.parse(cached);if(Array.isArray(parsed))odooTasks=parsed;}
   }catch(e){}
 }
 function validColor(c){return /^#[0-9a-f]{6}$/i.test(c||'')?c:''}
@@ -454,6 +462,7 @@ function renderTimer(){
   }
   var seen={},h='';
   state.entries.forEach(function(e){if(e.desc&&!seen[e.desc]){seen[e.desc]=1;h+='<option value="'+esc(e.desc)+'">'}});
+  odooTasks.forEach(function(t){if(t.task&&!seen[t.task]){seen[t.task]=1;h+='<option value="'+esc(t.task)+'">'}});
   $('#descList').innerHTML=h;
   tintSelect();
 }
@@ -648,7 +657,12 @@ function toggleTimer(){
   startEntry($('#tDesc').value.trim(),$('#tProj').value);
 }
 $('#tDesc').addEventListener('input',function(){var r=running();if(r){r.desc=this.value;save()}});
-$('#tDesc').addEventListener('change',function(){var r=running();if(r){r.desc=this.value.trim();save();renderList();tick()}});
+$('#tDesc').addEventListener('change',function(){
+  var r=running();
+  if(r){r.desc=this.value.trim();save();renderList();tick();return}
+  var match=odooTasks.find(function(t){return norm(t.task)===norm(this.value.trim())}.bind(this));
+  if(match&&match.project){var p=state.projects.find(function(x){return norm(x.name)===norm(match.project)});if(p){$('#tProj').value=p.id;comboSync('tProj')}}
+});
 $('#tProj').addEventListener('change',function(){tintSelect();var r=running();if(r){r.projectId=this.value||null;save();renderList();tick()}});
 
 /* ---------- eventos: dia ---------- */
@@ -743,6 +757,38 @@ $('#eSave').addEventListener('click',function(){
 
 /* ---------- diálogo de projetos ---------- */
 $('#btnProjects').addEventListener('click',function(){$('#pColor').value=PALETTE[state.projects.length%PALETTE.length];renderProjectsDialog();$('#dlgProjects').showModal();$('#pName').focus()});
+$('#odooImport').addEventListener('click',importOdooTasks);
+async function importOdooTasks(){
+  var btn=$('#odooImport'),status=$('#odooImportStatus');
+  if(!sb||!currentUid){status.textContent='Entre na sua conta antes de importar.';return}
+  btn.disabled=true;status.textContent='Buscando tarefas no Odoo…';
+  try{
+    var result=await sb.functions.invoke('odoo-tasks',{body:{}});
+    if(result.error)throw result.error;
+    var rows=result.data&&result.data.tasks;
+    if(!Array.isArray(rows))throw new Error('A função não retornou uma lista de tarefas.');
+    var clean=rows.filter(function(t){return t&&typeof t.task==='string'&&t.task.trim()})
+      .map(function(t){return {task:t.task.trim(),project:typeof t.project==='string'?t.project.trim():''}});
+    var addedProjects=0;
+    clean.forEach(function(t){
+      if(!t.project)return;
+      var existing=state.projects.find(function(p){return norm(p.name)===norm(t.project)});
+      if(!existing){
+        var p={id:uid(),name:t.project.slice(0,200),client:'',color:PALETTE[state.projects.length%PALETTE.length]};
+        state.projects.push(p);addedProjects++;
+      }
+    });
+    odooTasks=clean;
+    try{localStorage.setItem(ODOO_TASKS_KEY,JSON.stringify(odooTasks))}catch(e){}
+    save();renderProjectsDialog();render();
+    status.textContent=clean.length+' tarefas importadas; '+addedProjects+' projetos novos.';
+    toast('Importação do Odoo concluída.');
+  }catch(err){
+    console.error('Falha ao importar tarefas do Odoo:',err);
+    status.textContent='Falha na importação. Confira o deploy, a sessão e os logs da Edge Function.';
+    toast('Não foi possível importar tarefas do Odoo.');
+  }finally{btn.disabled=false}
+}
 function addProject(){
   var n=$('#pName').value.trim(),c=$('#pClient').value.trim();
   if(!n){toast('Dê um nome ao projeto.');return}
