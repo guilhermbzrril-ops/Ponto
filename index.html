@@ -987,8 +987,8 @@ async function loadChatContacts(){
   if(!sb||!currentUid)return;
   $('#chatContacts').innerHTML='<p class="hint">Carregando pessoas…</p>';
   try{
-    var r=await chk(sb.from('profiles').select('id,email').neq('id',currentUid).order('email',{ascending:true}));
-    chatContacts=(r.data||[]).filter(function(p){return p.id&&p.id!==currentUid});
+    var r=await chk(sb.from('profiles').select('user_id,display_name,email').neq('user_id',currentUid).order('display_name',{ascending:true}));
+    chatContacts=(r.data||[]).map(function(p){return {id:p.user_id,email:p.display_name||p.email||'Usuário'}}).filter(function(p){return p.id&&p.id!==currentUid});
     renderChatContacts();
   }catch(err){
     $('#chatContacts').innerHTML='<p class="hint">Não foi possível carregar as pessoas. Execute o arquivo supabase-chat.sql no SQL Editor do Supabase e tente novamente.</p>';
