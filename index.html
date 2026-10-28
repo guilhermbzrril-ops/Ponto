@@ -462,7 +462,11 @@ function renderTimer(){
   }
   var seen={},h='';
   state.entries.forEach(function(e){if(e.desc&&!seen[e.desc]){seen[e.desc]=1;h+='<option value="'+esc(e.desc)+'">'}});
-  odooTasks.forEach(function(t){if(t.task&&!seen[t.task]){seen[t.task]=1;h+='<option value="'+esc(t.task)+'">'}});
+  odooTasks.forEach(function(t){
+    if(!t.task)return;
+    var label=odooTaskLabel(t);
+    if(!seen[label]){seen[label]=1;h+='<option value="'+esc(label)+'">'}
+  });
   $('#descList').innerHTML=h;
   tintSelect();
 }
@@ -657,11 +661,22 @@ function toggleTimer(){
   startEntry($('#tDesc').value.trim(),$('#tProj').value);
 }
 $('#tDesc').addEventListener('input',function(){var r=running();if(r){r.desc=this.value;save()}});
+function odooTaskLabel(t){return t.project?t.task+'  ⟦'+t.project+'⟧':t.task}
 $('#tDesc').addEventListener('change',function(){
+  var value=this.value.trim();
+  var exact=odooTasks.filter(function(t){return norm(odooTaskLabel(t))===norm(value)});
+  var plain=odooTasks.filter(function(t){return norm(t.task)===norm(value)});
+  var match=exact.length===1?exact[0]:(plain.length===1?plain[0]:null);
+  if(match){
+    this.value=match.task;
+    var p=match.project?state.projects.find(function(x){return norm(x.name)===norm(match.project)}):null;
+    $('#tProj').value=p?p.id:'';
+    comboSync('tProj');
+  }else if(plain.length>1){
+    toast('Essa tarefa existe em vários projetos. Escolha a sugestão com o nome do projeto.');
+  }
   var r=running();
-  if(r){r.desc=this.value.trim();save();renderList();tick();return}
-  var match=odooTasks.find(function(t){return norm(t.task)===norm(this.value.trim())}.bind(this));
-  if(match&&match.project){var p=state.projects.find(function(x){return norm(x.name)===norm(match.project)});if(p){$('#tProj').value=p.id;comboSync('tProj')}}
+  if(r){r.desc=this.value.trim();r.projectId=$('#tProj').value||null;save();renderList();tick()}
 });
 $('#tProj').addEventListener('change',function(){tintSelect();var r=running();if(r){r.projectId=this.value||null;save();renderList();tick()}});
 
@@ -768,7 +783,8 @@ async function importOdooTasks(){
     var rows=result.data&&result.data.tasks;
     if(!Array.isArray(rows))throw new Error('A função não retornou uma lista de tarefas.');
     var clean=rows.filter(function(t){return t&&typeof t.task==='string'&&t.task.trim()})
-      .map(function(t){return {task:t.task.trim(),project:typeof t.project==='string'?t.project.trim():''}});
+      .map(function(t){return {task:t.task.trim(),project:typeof t.project==='string'?t.project.trim():''}})
+      .filter(function(t,i,all){return all.findIndex(function(x){return norm(x.task)===norm(t.task)&&norm(x.project)===norm(t.project)})===i});
     var addedProjects=0;
     clean.forEach(function(t){
       if(!t.project)return;
