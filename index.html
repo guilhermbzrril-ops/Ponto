@@ -44,8 +44,8 @@ button{cursor:pointer}
 }
 .brand{font-weight:800;font-size:20px;letter-spacing:1.4px;margin-right:auto;display:flex;align-items:center;gap:10px}
 .brand span{background:linear-gradient(90deg,#55c8e8,#9ee86f);-webkit-background-clip:text;background-clip:text;color:transparent}
-.oxfy-logo{width:38px;height:32px;display:block;flex:none}
-@media(max-width:480px){.top{padding:10px 12px;gap:7px}.brand{font-size:18px;gap:7px}.oxfy-logo{width:32px;height:28px}}
+.oxfy-logo{width:40px;height:32px;object-fit:contain;display:block;flex:none}
+@media(max-width:480px){.top{padding:10px 12px;gap:7px}.brand{font-size:18px;gap:7px}.oxfy-logo{width:34px;height:28px}}
 .btn{
   background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);
   padding:8px 14px;
@@ -237,15 +237,7 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 <div id="app" hidden>
 <header class="top">
   <div class="brand" aria-label="OXFY">
-    <svg class="oxfy-logo" viewBox="0 0 64 52" role="img" aria-label="Boi com máscara de oxigênio">
-      <path d="M18 14C10 12 5 7 4 2c9 1 16 5 20 12M46 14C54 12 59 7 60 2c-9 1-16 5-20 12" fill="none" stroke="#55c8e8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M17 13Q32 5 47 13L53 27Q51 43 32 49Q13 43 11 27Z" fill="#183b59" stroke="#55c8e8" stroke-width="2"/>
-      <path d="M22 20l5 2M42 20l-5 2" stroke="#f2f7fa" stroke-width="3" stroke-linecap="round"/>
-      <path d="M21 29Q32 23 43 29L41 38Q32 43 23 38Z" fill="#d9f7ff" stroke="#55c8e8" stroke-width="2"/>
-      <path d="M27 31h10v5H27z" fill="#55c8e8"/>
-      <path d="M41 34h6q5 0 5 5v3" fill="none" stroke="#55c8e8" stroke-width="3" stroke-linecap="round"/>
-      <circle cx="53" cy="44" r="3" fill="#9ee86f"/><circle cx="58" cy="37" r="2" fill="#9ee86f"/>
-    </svg>
+    <img class="oxfy-logo" src="./nelore-logo.svg" alt="Cabeça de boi Nelore">
     <span>OXFY</span>
   </div>
   <span class="who" id="who"></span>
