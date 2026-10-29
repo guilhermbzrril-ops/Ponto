@@ -838,7 +838,7 @@ $('#odooExportGo').addEventListener('click',async function(){
   btn.disabled=true;$('#odooExportStatus').textContent='Enviando para o Odoo…';
   try{
     await flushNow();
-    var result=await sb.functions.invoke('odoo-timesheets',{body:{entry_ids:ids}});
+    var localDates={};ids.forEach(function(id){var e=entryById(id);if(e)localDates[id]=dayKey(e.start)});var result=await sb.functions.invoke('odoo-timesheets',{body:{entry_ids:ids,local_dates:localDates}});
     if(result.error)throw result.error;
     var outcomes=result.data&&result.data.results||[];
     var ok=outcomes.filter(function(x){return x.status==='synced'}).length;
