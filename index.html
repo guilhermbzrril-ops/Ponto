@@ -1105,8 +1105,20 @@ $('#odooExportGo').addEventListener('click',async function(){
       entry_ids:ids,selected_date:selectedDate,local_dates:localDates,
       time_zone:timeZone,entry_signatures:entrySignatures
     }});
-    if(result.error)throw result.error;
-    var outcomes=result.data&&result.data.results||[];
+    if(result.error){
+      var errorMessage=result.error.message||'A função de exportação retornou um erro.';
+      try{
+        var context=result.error.context;
+        if(context&&typeof context.clone==='function'){
+          var payload=await context.clone().json();
+          if(payload&&typeof payload.error==='string')errorMessage=payload.error;
+        }
+      }catch(_){}
+      throw new Error(errorMessage);
+    }
+    var outcomes=result.data&&result.data.results;
+    if(!Array.isArray(outcomes))throw new Error('A função não retornou os resultados da exportação. Atualize o status antes de tentar novamente.');
+    if(outcomes.length!==ids.length)throw new Error('O retorno contém '+outcomes.length+' resultado(s) para '+ids.length+' atividade(s) selecionada(s). Atualize os status no OXFY e confira o Odoo antes de repetir.');
     var ok=outcomes.filter(function(x){return x.status==='synced'}).length;
     var skipped=outcomes.filter(function(x){return x.status==='skipped'}).length;
     var fail=outcomes.filter(function(x){return x.status!=='synced'&&x.status!=='skipped'}).length;
