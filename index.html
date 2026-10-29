@@ -957,6 +957,9 @@ function exportStatusFor(e){
   if(!r)return {label:'Pendente',status:'pending'};
   if(r.status==='needs_review')return {label:r.odoo_line_id?'Resultado incerto — revisar linha existente':'Resultado incerto — verificar Odoo antes de repetir',status:'needs_review'};
   if(r.status==='exporting')return {label:'Envio em andamento / aguardando recuperação',status:'exporting'};
+  // Legacy errors without an Odoo line ID may have happened after a remote create succeeded.
+  // Treat them as uncertain unless the backend explicitly marked the failure safe to retry.
+  if(r.status==='error'&&!r.odoo_line_id&&r.retry_safe!==true)return {label:'Resultado incerto — verificar no Odoo antes de repetir',status:'needs_review'};
   if(r.status==='error')return {label:'Erro no envio',status:'error'};
   if(r.status==='changed')return {label:'Alterado — sincronizar',status:'changed'};
   if(r.odoo_line_id&&!exportSignatureMatches(r.exported_signature,e))return {label:'Alterado — sincronizar',status:'changed'};
@@ -986,7 +989,7 @@ async function loadOdooExportRows(){
   var date=$('#odooExportDate').value||sel;
   $('#odooExportRows').innerHTML='<p class="hint">Carregando…</p>';
   try{
-    var statusColumns='entry_id,odoo_line_id,exported_signature,status,last_exported_at,last_error,updated_at';
+    var statusColumns='entry_id,odoo_line_id,exported_signature,status,retry_safe,last_exported_at,last_error,updated_at';
     var r=await chk(sb.from('odoo_timesheet_exports').select(statusColumns));
     if(request!==odooExportLoadSeq||date!==($('#odooExportDate').value||sel))return;
     odooExportStatusRows=r.data||[];
@@ -997,6 +1000,7 @@ async function loadOdooExportRows(){
     if(staleIds.length){
       await chk(sb.from('odoo_timesheet_exports').update({
         status:'needs_review',
+        retry_safe:false,
         last_error:'O envio ficou sem confirmação por mais de 15 minutos. Verifique o Odoo antes de autorizar nova tentativa.',
         updated_at:new Date().toISOString()
       }).in('entry_id',staleIds).eq('status','exporting').lt('updated_at',staleCutoff));
@@ -1068,9 +1072,10 @@ $('#odooExportRows').addEventListener('click',async function(ev){
   try{
     var updated=await chk(sb.from('odoo_timesheet_exports').update({
       status:'error',
+      retry_safe:true,
       last_error:'Usuário confirmou que verificou no Odoo e não encontrou a linha; nova tentativa autorizada manualmente.',
       updated_at:new Date().toISOString()
-    }).eq('entry_id',id).eq('status','needs_review').select('entry_id').maybeSingle());
+    }).eq('entry_id',id).in('status',['needs_review','error']).eq('retry_safe',false).is('odoo_line_id',null).select('entry_id').maybeSingle());
     if(!updated.data)throw new Error('O estado mudou; atualize a lista antes de tentar novamente.');
     await loadOdooExportRows();
     $('#odooExportStatus').textContent='Nova tentativa liberada após sua confirmação. O registro está selecionado; revise e envie.';
@@ -1091,8 +1096,8 @@ $('#odooExportGo').addEventListener('click',async function(){
   var beforeSignatures={};chosen.forEach(function(e){beforeSignatures[e.id]=exportSignature(e)});
   btn.disabled=true;$('#odooExportDate').disabled=true;$('#odooExportRefresh').disabled=true;$('#odooExportStatus').textContent='Enviando para o Odoo…';
   try{
-    await flushNow();
-    // flushNow may reload DB state after a failed save; do not export stale or changed selections.
+    await flushNow(true);
+    // A save failure now aborts export instead of silently continuing with stale data.
     var afterFlush=ids.map(function(id){return entryById(id)});
     if(afterFlush.some(function(e){return !e||e.end==null||dayKey(e.start)!==selectedDate||beforeSignatures[e.id]!==exportSignature(e)})){
       throw new Error('Os dados mudaram durante o salvamento ou não puderam ser salvos. A exportação foi cancelada; recarregue a lista, confira as horas e tente novamente.');
