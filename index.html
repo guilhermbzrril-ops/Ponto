@@ -1224,11 +1224,11 @@ $('#bFile').addEventListener('change',function(){
     try{
       var d=JSON.parse(rd.result);
       if(!Array.isArray(d.projects)||!Array.isArray(d.entries))throw new Error('formato');
-      if(!confirm('Isto vai ADICIONAR à sua conta '+d.projects.length+' projetos e '+d.entries.length+' atividades do backup. Continuar?'))return;
+      if(!confirm('Isto vai ADICIONAR '+d.projects.length+' projetos e '+d.entries.length+' atividades. Os vínculos de sincronização Odoo não são copiados; atividades que já foram exportadas podem gerar novas linhas no Odoo se forem exportadas novamente. Continue somente se você revisar os registros importados. Continuar?'))return;
       var map={};
       d.projects.forEach(function(p){
         var nid=uid();map[p.id]=nid;
-        state.projects.push({id:nid,name:String(p.name||'Sem nome').slice(0,200),client:String(p.client||'').slice(0,200),color:validColor(p.color)||''});
+        state.projects.push({id:nid,name:String(p.name||'Sem nome').slice(0,200),client:String(p.client||'').slice(0,200),color:validColor(p.color)||'',odooProjectId:p.odooProjectId==null?null:Number(p.odooProjectId)});
       });
       d.entries.forEach(function(e){
         var st=Number(e.start);if(!isFinite(st))return;
