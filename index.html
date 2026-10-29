@@ -173,8 +173,10 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 .sw:hover{border-color:var(--text)}
 .pform input[type=color],.pitem input[type=color]{width:46px;height:40px;padding:3px;cursor:pointer}
 .plist{display:grid;gap:8px;max-height:320px;overflow:auto}
-.pitem{display:grid;grid-template-columns:1fr 1fr 46px auto;gap:8px;align-items:center}
-.pitem input{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px}
+.pitem{display:grid;grid-template-columns:minmax(140px,1fr) minmax(90px,.7fr) minmax(190px,1.2fr) 46px auto;gap:8px;align-items:center}
+.pitem input,.pitem select{width:100%;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px}
+.pitem select{font-size:13px}
+@media(max-width:820px){.pitem{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 46px auto}.pitem select{grid-column:1/-1;grid-row:2}}
 .hint{color:var(--muted);font-size:13px;margin:0}
 
 .toast{
@@ -548,12 +550,31 @@ function tick(){
   document.title=r?'● '+fmtDur(durSec(r))+(r.desc?' – '+r.desc:''):'Ponto – controle de horas';
 }
 
+function odooProjectOptions(selected){
+  var byId={},items=[];
+  odooTasks.forEach(function(t){
+    if(t.projectId==null||!t.project)return;
+    var id=String(t.projectId);
+    if(!byId[id]){byId[id]={id:id,name:t.project,count:0};items.push(byId[id])}
+    byId[id].count++;
+  });
+  items.sort(function(a,b){return a.name.localeCompare(b.name,'pt-BR')||Number(a.id)-Number(b.id)});
+  var h='<option value="">Automático — somente nome único</option>';
+  var chosen=selected==null?'':String(selected);
+  if(chosen&&!byId[chosen])h+='<option value="'+esc(chosen)+'" selected>Vínculo atual (#'+esc(chosen)+')</option>';
+  items.forEach(function(p){
+    var duplicates=items.filter(function(x){return norm(x.name)===norm(p.name)}).length>1;
+    h+='<option value="'+esc(p.id)+'"'+(p.id===chosen?' selected':'')+'>'+esc(p.name)+(duplicates?' · ID '+esc(p.id):'')+'</option>';
+  });
+  return h;
+}
 function renderProjectsDialog(){
   var h='';
   state.projects.forEach(function(p){
     h+='<div class="pitem" data-pid="'+esc(p.id)+'">'+
       '<input data-f="name" maxlength="200" value="'+esc(p.name)+'" aria-label="Nome do projeto">'+
       '<input data-f="client" maxlength="200" value="'+esc(p.client||'')+'" placeholder="Cliente" aria-label="Cliente">'+
+      '<select data-f="odooProjectId" aria-label="Projeto correspondente no Odoo" title="Escolha o ID exato do projeto no Odoo">'+odooProjectOptions(p.odooProjectId)+'</select>'+
       '<input type="color" data-f="color" value="'+esc(validColor(p.color)||'#4aa3ff')+'" aria-label="Cor do projeto" title="Cor do projeto">'+
       '<button class="icon-btn" data-pdel aria-label="Excluir projeto" title="Excluir projeto">'+ICON_DEL+'</button></div>';
   });
@@ -981,7 +1002,7 @@ async function importOdooTasks(){
 function addProject(){
   var n=$('#pName').value.trim(),c=$('#pClient').value.trim();
   if(!n){toast('Dê um nome ao projeto.');return}
-  state.projects.push({id:uid(),name:n,client:c,color:validColor($('#pColor').value)||PALETTE[state.projects.length%PALETTE.length]});
+  state.projects.push({id:uid(),name:n,client:c,color:validColor($('#pColor').value)||PALETTE[state.projects.length%PALETTE.length],odooProjectId:null});
   $('#pName').value='';$('#pClient').value='';
   $('#pColor').value=PALETTE[state.projects.length%PALETTE.length];
   save();renderProjectsDialog();render();$('#pName').focus();
@@ -994,7 +1015,9 @@ $('#pList').addEventListener('change',function(ev){
   var p=projById(ev.target.closest('.pitem').getAttribute('data-pid'));if(!p)return;
   var v=ev.target.value.trim();
   if(f==='name'&&!v){ev.target.value=p.name;toast('O nome não pode ficar vazio.');return}
-  p[f]=v;save();render();
+  if(f==='odooProjectId')p.odooProjectId=v?Number(v):null;
+  else p[f]=v;
+  save();renderProjectsDialog();render();
 });
 $('#pList').addEventListener('click',function(ev){
   var b=ev.target.closest('[data-pdel]');if(!b)return;
@@ -1065,7 +1088,7 @@ $$('dialog').forEach(function(dlg){
 });
 
 /* ---------- sincronização com o Supabase ---------- */
-function projRow(p){return {id:p.id,name:p.name,client:p.client||'',color:validColor(p.color)||'#4aa3ff'}}
+function projRow(p){return {id:p.id,name:p.name,client:p.client||'',color:validColor(p.color)||'#4aa3ff',odoo_project_id:p.odooProjectId||null}}
 function entRow(e){return {id:e.id,project_id:e.projectId||null,description:e.desc||'',started_at:new Date(e.start).toISOString(),ended_at:e.end==null?null:new Date(e.end).toISOString()}}
 async function chk(q){var r=await q;if(r.error)throw r.error;return r}
 async function fetchAll(table,cols,orderCol){
@@ -1082,9 +1105,9 @@ async function fetchAll(table,cols,orderCol){
 async function loadAll(){
   if(!sb||!currentUid)return;
   try{
-    var ps=await fetchAll('projects','id,name,client,color','created_at');
+    var ps=await fetchAll('projects','id,name,client,color,odoo_project_id','created_at');
     var es=await fetchAll('entries','id,project_id,description,started_at,ended_at','started_at');
-    state.projects=ps.map(function(r){return {id:r.id,name:r.name,client:r.client||'',color:r.color}});
+    state.projects=ps.map(function(r){return {id:r.id,name:r.name,client:r.client||'',color:r.color,odooProjectId:r.odoo_project_id||null}});
     state.entries=es.map(function(r){return {id:r.id,projectId:r.project_id,desc:r.description||'',start:Date.parse(r.started_at),end:r.ended_at?Date.parse(r.ended_at):null}});
     snapP=new Map();snapE=new Map();
     state.projects.forEach(function(p){snapP.set(p.id,JSON.stringify(projRow(p)))});
