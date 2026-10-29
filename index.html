@@ -289,14 +289,16 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
   <div class="db">
     <div class="field"><label for="odooExportDate">Dia dos registros</label><input type="date" id="odooExportDate"></div>
     <div id="odooExportSummary" class="hint">Carregando registros…</div>
-    <label style="display:none"><input type="checkbox" id="odooExportForceUpdate" checked></label>
     <div id="odooExportRows" class="plist"></div>
     <div class="df"><button class="btn" data-close>Cancelar</button><button class="btn primary" id="odooExportGo">Enviar selecionados</button></div>
     <p class="hint" id="odooExportStatus">Revise os registros antes de enviar. Registros já exportados serão atualizados, não duplicados.</p>
-    <details id="odooExportDebug" style="margin-top:6px">
+    <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:6px">
+    <details id="odooExportDebug" style="margin:0">
       <summary style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;font-weight:500;color:var(--muted);padding:4px 7px;border:1px solid var(--line);border-radius:6px;list-style-position:inside">ⓘ Diagnóstico</summary>
       <pre id="odooExportDebugText" style="white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,Consolas,monospace;margin:8px 0 0;padding:9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text)">Aguardando leitura dos registros…</pre>
     </details>
+    <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--muted);padding:4px 7px;border:1px solid var(--line);border-radius:6px"><input type="checkbox" id="odooExportForceUpdate" style="margin:0;width:12px;height:12px" checked><span>Forçar write</span></label>
+  </div>
   </div>
 </dialog>
 
