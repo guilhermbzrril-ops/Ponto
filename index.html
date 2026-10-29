@@ -287,7 +287,7 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
     <div class="field"><label for="odooExportDate">Dia dos registros</label><input type="date" id="odooExportDate"></div>
     <div id="odooExportSummary" class="hint">Carregando registros…</div>
     <div id="odooExportRows" class="plist"></div>
-    <div class="df"><button class="btn" data-close>Cancelar</button><button class="btn primary" id="odooExportGo">Enviar selecionados</button></div>
+    <div class="df"><button class="btn" data-close>Cancelar</button><button class="btn" id="odooExportRefresh" type="button">Atualizar dados</button><button class="btn primary" id="odooExportGo">Enviar selecionados</button></div>
     <p class="hint" id="odooExportStatus">Revise os registros antes de enviar. Registros já exportados serão atualizados, não duplicados.</p>
   </div>
 </dialog>
@@ -966,9 +966,20 @@ function exportStatusFor(e){
 async function openOdooExport(){
   if(!sb||!currentUid){toast('Entre na sua conta antes de exportar.');return}
   $('#odooExportDate').value=sel;
-  $('#odooExportStatus').textContent='Carregando status de sincronização…';
+  $('#odooExportStatus').textContent='Salvando alterações e atualizando dados do Supabase…';
   $('#dlgOdooTimesheets').showModal();
-  await loadOdooExportRows();
+  var go=$('#odooExportGo'),refresh=$('#odooExportRefresh');
+  go.disabled=true;refresh.disabled=true;
+  try{
+    await flushNow(true);
+    if(!await loadAll())throw new Error('Não foi possível recarregar os registros do Supabase. Nenhuma exportação foi iniciada.');
+    await loadOdooExportRows();
+  }catch(err){
+    $('#odooExportRows').innerHTML='<p class="hint">A lista não foi atualizada. Corrija a conexão e tente atualizar os dados.</p>';
+    $('#odooExportStatus').textContent='Não foi possível preparar a exportação: '+(err&&err.message?err.message:'erro de conexão');
+  }finally{
+    go.disabled=false;refresh.disabled=false;
+  }
 }
 async function loadOdooExportRows(){
   var request=++odooExportLoadSeq;
@@ -1031,6 +1042,18 @@ async function loadOdooExportRows(){
   }
 }
 $('#btnOdooTimesheets').addEventListener('click',openOdooExport);
+$('#odooExportRefresh').addEventListener('click',async function(){
+  var btn=this,go=$('#odooExportGo');
+  btn.disabled=true;go.disabled=true;$('#odooExportStatus').textContent='Salvando e buscando os dados mais recentes…';
+  try{
+    await flushNow(true);
+    if(!await loadAll())throw new Error('O Supabase não retornou os registros atualizados.');
+    await loadOdooExportRows();
+    $('#odooExportStatus').textContent='Dados atualizados do Supabase. Revise novamente a data, as horas e os status antes de exportar.';
+  }catch(err){
+    $('#odooExportStatus').textContent='Atualização falhou; não exporte com dados desatualizados. '+(err&&err.message?err.message:'Erro de conexão.');
+  }finally{btn.disabled=false;go.disabled=false}
+});
 $('#odooExportDate').addEventListener('change',loadOdooExportRows);
 $('#odooExportRows').addEventListener('change',function(ev){
   var cb=ev.target.closest('[data-export-entry]');if(!cb)return;
@@ -1066,7 +1089,7 @@ $('#odooExportGo').addEventListener('click',async function(){
   }
   if(!confirm('Enviar '+ids.length+' registro(s) da data '+selectedDate+' ao Odoo? Registros vinculados serão atualizados, não recriados.'))return;
   var beforeSignatures={};chosen.forEach(function(e){beforeSignatures[e.id]=exportSignature(e)});
-  btn.disabled=true;$('#odooExportDate').disabled=true;$('#odooExportStatus').textContent='Enviando para o Odoo…';
+  btn.disabled=true;$('#odooExportDate').disabled=true;$('#odooExportRefresh').disabled=true;$('#odooExportStatus').textContent='Enviando para o Odoo…';
   try{
     await flushNow();
     // flushNow may reload DB state after a failed save; do not export stale or changed selections.
@@ -1096,7 +1119,7 @@ $('#odooExportGo').addEventListener('click',async function(){
   }catch(err){
     $('#odooExportStatus').textContent='Falha na exportação: '+(err&&err.message?err.message:'erro de conexão');
     toast('Não foi possível exportar os timesheets.');
-  }finally{btn.disabled=false;$('#odooExportDate').disabled=false}
+  }finally{btn.disabled=false;$('#odooExportDate').disabled=false;$('#odooExportRefresh').disabled=false}
 });
 
 $('#odooImport').addEventListener('click',importOdooTasks);
@@ -1298,7 +1321,7 @@ async function fetchAll(table,cols,orderCol){
   return out;
 }
 async function loadAll(){
-  if(!sb||!currentUid)return;
+  if(!sb||!currentUid)return false;
   try{
     var ps=await fetchAll('projects','id,name,client,color,odoo_project_id','created_at');
     var es=await fetchAll('entries','id,project_id,description,started_at,ended_at,odoo_task_id','started_at');
@@ -1310,7 +1333,11 @@ async function loadAll(){
     if(ensureColors())save();
     var r0=running();if(r0)$('#tDesc').value=r0.desc;
     render();
-  }catch(err){toast('Não foi possível carregar seus dados. Verifique a conexão.')}
+    return true;
+  }catch(err){
+    toast('Não foi possível carregar seus dados. Verifique a conexão.');
+    return false;
+  }
 }
 function scheduleFlush(){
   if(!sb||!currentUid)return;
