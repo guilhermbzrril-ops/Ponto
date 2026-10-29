@@ -772,7 +772,7 @@ $('#tDesc').addEventListener('change',function(){
 $('#tProj').addEventListener('change',function(){
   tintSelect();
   var r=running(),task=resolveOdooTask(r?r.desc:$('#tDesc').value,this.value,selectedOdooTaskId);
-  selectedOdooTaskId=task?Number(task.taskId):null;
+  selectedOdooTaskId=task&&task.taskId!=null?Number(task.taskId):null;
   if(r){r.projectId=this.value||null;r.odooTaskId=selectedOdooTaskId;save();renderList();tick()}
 });
 
