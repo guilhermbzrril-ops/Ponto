@@ -1024,21 +1024,46 @@ async function importOdooTasks(){
     var rows=result.data&&result.data.tasks;
     if(!Array.isArray(rows))throw new Error('A função não retornou uma lista de tarefas.');
     var clean=rows.filter(function(t){return t&&typeof t.task==='string'&&t.task.trim()})
-      .map(function(t){return {task:t.task.trim(),project:typeof t.project==='string'?t.project.trim():''}})
-      .filter(function(t,i,all){return all.findIndex(function(x){return norm(x.task)===norm(t.task)&&norm(x.project)===norm(t.project)})===i});
-    var addedProjects=0;
+      .map(function(t){return {
+        taskId:t.task_id==null?null:Number(t.task_id),
+        task:t.task.trim(),
+        projectId:t.project_id==null?null:Number(t.project_id),
+        project:typeof t.project==='string'?t.project.trim():''
+      }})
+      .filter(function(t,i,all){
+        if(t.taskId!=null)return all.findIndex(function(x){return x.taskId===t.taskId})===i;
+        return all.findIndex(function(x){return x.taskId==null&&norm(x.task)===norm(t.task)&&norm(x.project)===norm(t.project)})===i;
+      });
+    var importedProjects=[],seenOdooProjects={};
     clean.forEach(function(t){
-      if(!t.project)return;
-      var existing=state.projects.find(function(p){return norm(p.name)===norm(t.project)});
-      if(!existing){
-        var p={id:uid(),name:t.project.slice(0,200),client:'',color:PALETTE[state.projects.length%PALETTE.length]};
-        state.projects.push(p);addedProjects++;
+      if(!t.project||t.projectId==null)return;
+      var id=String(t.projectId);
+      if(!seenOdooProjects[id]){seenOdooProjects[id]=1;importedProjects.push({projectId:Number(t.projectId),project:t.project})}
+    });
+    var addedProjects=0,linkedProjects=0;
+    importedProjects.forEach(function(remote){
+      var remoteId=String(remote.projectId);
+      if(state.projects.some(function(p){return String(p.odooProjectId||'')===remoteId}))return;
+      var sameRemoteName=importedProjects.filter(function(x){return norm(x.project)===norm(remote.project)}).length;
+      var unlinked=state.projects.filter(function(p){return !p.odooProjectId&&norm(p.name)===norm(remote.project)});
+      if(sameRemoteName===1&&unlinked.length===1){
+        unlinked[0].odooProjectId=remote.projectId;linkedProjects++;
+        return;
       }
+      var localName=remote.project;
+      if(sameRemoteName>1||unlinked.length>1||state.projects.some(function(p){return norm(p.name)===norm(localName)&&String(p.odooProjectId||'')!==remoteId})){
+        localName=remote.project+' · Odoo #'+remoteId;
+      }
+      state.projects.push({
+        id:uid(),name:localName.slice(0,200),client:'',
+        color:PALETTE[state.projects.length%PALETTE.length],odooProjectId:remote.projectId
+      });
+      addedProjects++;
     });
     odooTasks=clean;
     try{localStorage.setItem(ODOO_TASKS_KEY,JSON.stringify(odooTasks))}catch(e){}
     save();renderProjectsDialog();render();
-    status.textContent=clean.length+' tarefas importadas; '+addedProjects+' projetos novos.';
+    status.textContent=clean.length+' tarefas importadas; '+addedProjects+' projetos novos e '+linkedProjects+' vínculos identificados.';
     toast('Importação do Odoo concluída.');
   }catch(err){
     console.error('Falha ao importar tarefas do Odoo:',err);
