@@ -813,6 +813,7 @@ $('#pSwatches').addEventListener('click',function(ev){var b=ev.target.closest('[
 /* ---------- diálogo de atividade ---------- */
 function openEntry(e){
   editingId=e?e.id:null;
+  editingOdooTaskId=e&&e.odooTaskId!=null?Number(e.odooTaskId):null;
   $('#eTitle').textContent=e?'Editar atividade':'Adicionar atividade';
   $('#eDesc').value=e?e.desc:'';
   $('#eProj').innerHTML=projectOptions(e?e.projectId:'');comboSync('eProj');
@@ -825,6 +826,31 @@ function openEntry(e){
   $('#dlgEntry').showModal();
 }
 $('#dAdd').addEventListener('click',function(){openEntry(null)});
+$('#eDesc').addEventListener('change',function(){
+  var value=this.value.trim();
+  var exact=odooTasks.filter(function(t){return norm(odooTaskLabel(t))===norm(value)});
+  var plain=odooTasks.filter(function(t){return norm(t.task)===norm(value)});
+  var match=exact.length===1?exact[0]:(plain.length===1?plain[0]:null);
+  if(match){
+    this.value=match.task;
+    editingOdooTaskId=match.taskId==null?null:Number(match.taskId);
+    var p=match.projectId!=null?state.projects.find(function(x){return String(x.odooProjectId||'')===String(match.projectId)}):null;
+    if(!p&&match.project){
+      var candidates=state.projects.filter(function(x){return norm(x.name)===norm(match.project)});
+      if(candidates.length===1)p=candidates[0];
+    }
+    if(p){$('#eProj').value=p.id;comboSync('eProj')}
+  }else if(plain.length>1){
+    editingOdooTaskId=null;
+    toast('Essa tarefa existe em vários projetos. Escolha a sugestão identificada pelo projeto/ID.');
+  }else{
+    editingOdooTaskId=null;
+  }
+});
+$('#eProj').addEventListener('change',function(){
+  var task=resolveOdooTask($('#eDesc').value,this.value,editingOdooTaskId);
+  editingOdooTaskId=task&&task.taskId!=null?Number(task.taskId):null;
+});
 $('#eSave').addEventListener('click',function(){
   var date=$('#eDate').value,s=$('#eStart').value,en=$('#eEnd').value;
   if(!date||!s){toast('Informe a data e o horário de início.');return}
@@ -837,8 +863,11 @@ $('#eSave').addEventListener('click',function(){
     if(end<start){toast('O fim precisa ser depois do início.');return}
   }
   var desc=$('#eDesc').value.trim(),proj=$('#eProj').value||null;
-  if(cur){cur.desc=desc;cur.projectId=proj;cur.start=start;cur.end=live?null:end}
-  else{state.entries.push({id:uid(),desc:desc,projectId:proj,start:start,end:end})}
+  var task=resolveOdooTask(desc,proj,editingOdooTaskId);
+  var unchangedTask=cur&&cur.odooTaskId!=null&&norm(cur.desc)===norm(desc)&&cur.projectId===proj;
+  var odooTaskId=task&&task.taskId!=null?Number(task.taskId):(unchangedTask?Number(cur.odooTaskId):null);
+  if(cur){cur.desc=desc;cur.projectId=proj;cur.start=start;cur.end=live?null:end;cur.odooTaskId=odooTaskId}
+  else{state.entries.push({id:uid(),desc:desc,projectId:proj,start:start,end:end,odooTaskId:odooTaskId})}
   sel=dayKey(start);
   save();$('#dlgEntry').close();render();
 });
@@ -1126,7 +1155,7 @@ $('#bFile').addEventListener('change',function(){
       d.entries.forEach(function(e){
         var st=Number(e.start);if(!isFinite(st))return;
         var en=e.end==null?st:Number(e.end);if(!isFinite(en)||en<st)en=st;
-        state.entries.push({id:uid(),desc:String(e.desc||'').slice(0,500),projectId:map[e.projectId]||null,start:st,end:en});
+        state.entries.push({id:uid(),desc:String(e.desc||'').slice(0,500),projectId:map[e.projectId]||null,start:st,end:en,odooTaskId:e.odooTaskId==null?null:Number(e.odooTaskId)});
       });
       ensureColors();save();render();$('#dlgBackup').close();toast('Backup importado.');
     }catch(e){toast('Arquivo inválido. Use um backup gerado por este app.')}
