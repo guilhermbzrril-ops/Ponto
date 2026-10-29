@@ -785,7 +785,7 @@ $('#dDate').addEventListener('change',function(){if(this.value){sel=this.value;r
 $('#sortBtn').addEventListener('click',function(){state.prefs.group=!state.prefs.group;save();renderDaybar();renderList();tick()});
 
 /* ---------- eventos: lista ---------- */
-$('#list').addEventListener('click',function(ev){
+$('#list').addEventListener('click',async function(ev){
   var b=ev.target.closest('[data-act]');if(!b)return;
   var row=b.closest('.row'),e=entryById(row.getAttribute('data-id'));if(!e)return;
   var act=b.getAttribute('data-act');
@@ -794,7 +794,21 @@ $('#list').addEventListener('click',function(ev){
     else{startEntry(e.desc,e.projectId,e.odooTaskId)}
   }else if(act==='edit'){openEntry(e)}
   else if(act==='del'){
-    if(confirm('Excluir esta atividade?')){state.entries=state.entries.filter(function(x){return x.id!==e.id});save();render()}
+    if(!sb||!currentUid){toast('Entre na sua conta para excluir atividades.');return}
+    try{
+      var check=await chk(sb.from('odoo_timesheet_exports').select('odoo_line_id,status').eq('entry_id',e.id).maybeSingle());
+      var x=check.data;
+      if(x&&(x.odoo_line_id||['synced','changed','exporting','needs_review'].includes(x.status))){
+        alert('Esta atividade tem uma exportação Odoo vinculada ou incerta. Ela não foi excluída para evitar deixar uma linha órfã ou criar duplicatas. Corrija/remova primeiro a linha no Odoo e confirme o vínculo antes de excluir.');
+        return;
+      }
+      if(confirm('Excluir esta atividade?')){
+        state.entries=state.entries.filter(function(x){return x.id!==e.id});
+        save();render();
+      }
+    }catch(err){
+      toast('Não consegui verificar a exportação Odoo; a atividade não foi excluída.');
+    }
   }
 });
 
@@ -1165,10 +1179,29 @@ $('#pList').addEventListener('change',function(ev){
   else p[f]=v;
   save();renderProjectsDialog();render();
 });
-$('#pList').addEventListener('click',function(ev){
+$('#pList').addEventListener('click',async function(ev){
   var b=ev.target.closest('[data-pdel]');if(!b)return;
   var id=b.closest('.pitem').getAttribute('data-pid'),p=projById(id);
-  if(!confirm('Excluir o projeto “'+p.name+'”? As atividades dele ficam como “Sem projeto”.'))return;
+  if(!p)return;
+  var attached=state.entries.filter(function(e){return e.projectId===id});
+  if(!sb||!currentUid){toast('Entre na sua conta antes de excluir projetos.');return}
+  if(attached.length){
+    try{
+      var statusCheck=await chk(sb.from('odoo_timesheet_exports').select('entry_id,odoo_line_id,status'));
+      var entryMap={};attached.forEach(function(e){entryMap[e.id]=1});
+      var protectedRows=(statusCheck.data||[]).filter(function(x){
+        return entryMap[x.entry_id]&&(x.odoo_line_id||['synced','changed','exporting','needs_review'].includes(x.status));
+      });
+      if(protectedRows.length){
+        alert('Este projeto tem '+protectedRows.length+' atividade(s) sincronizada(s) ou com resultado incerto no Odoo. Reatribua essas atividades e sincronize-as primeiro; o projeto não foi excluído.');
+        return;
+      }
+    }catch(err){
+      toast('Não consegui verificar as exportações Odoo; o projeto não foi excluído.');
+      return;
+    }
+  }
+  if(!confirm('Excluir o projeto “'+p.name+'”? As atividades restantes dele ficam como “Sem projeto”.'))return;
   state.projects=state.projects.filter(function(x){return x.id!==id});
   state.entries.forEach(function(e){if(e.projectId===id)e.projectId=null});
   save();renderProjectsDialog();render();
