@@ -849,11 +849,14 @@ async function loadOdooExportRows(){
       var disabled=live||st.status==='exporting'||needsManualReview?' disabled':'';
       var err=saved;
       var crosses=e.end!=null&&dayKey(e.end-1)!==dayKey(e.start);
-      return '<label class="export-row" style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)">'+
+      return '<div class="export-row" style="padding:10px 0;border-bottom:1px solid var(--line)">'+
+        '<label style="display:flex;gap:10px;align-items:flex-start">'+
         '<input type="checkbox" data-export-entry="'+esc(e.id)+'"'+checked+disabled+' style="margin-top:4px">'+
         '<span style="flex:1;min-width:0"><strong>'+esc(e.desc||'(sem descrição)')+'</strong><br><span class="hint">'+esc(p?p.name:'Sem projeto')+' · '+hm(e.start)+'–'+(live?'em andamento':hm(e.end))+' · '+exportDuration(e).toFixed(2)+' h</span>'+
         (crosses?'<br><span class="hint">Cruza a meia-noite: será lançado na data de início ('+dayKey(e.start)+').</span>':'')+
-        '<br><span class="hint">'+esc(st.label)+(err&&err.last_error?' — '+esc(err.last_error):'')+'</span></span></label>';
+        '<br><span class="hint">'+esc(st.label)+(err&&err.last_error?' — '+esc(err.last_error):'')+'</span></span></label>'+
+        (needsManualReview?'<div style="margin:8px 0 0 28px"><button type="button" class="btn" data-export-unblock="'+esc(e.id)+'">Conferi no Odoo — liberar nova tentativa</button><p class="hint">Use somente depois de confirmar no Odoo que a linha não foi criada.</p></div>':'')+
+        '</div>';
     }).join(''):'<p class="hint">Nenhum registro neste dia.</p>';
     $('#odooExportStatus').textContent='Revise as datas antes do envio. Uma atividade exportada será atualizada pela linha Odoo já vinculada, não recriada.';
   }catch(err){
@@ -867,6 +870,27 @@ $('#odooExportDate').addEventListener('change',loadOdooExportRows);
 $('#odooExportRows').addEventListener('change',function(ev){
   var cb=ev.target.closest('[data-export-entry]');if(!cb)return;
   if(cb.checked)odooExportSelection.add(cb.getAttribute('data-export-entry'));else odooExportSelection.delete(cb.getAttribute('data-export-entry'));
+});
+$('#odooExportRows').addEventListener('click',async function(ev){
+  var button=ev.target.closest('[data-export-unblock]');
+  if(!button)return;
+  var id=button.getAttribute('data-export-unblock');
+  if(!confirm('Confirme que você abriu o Odoo e verificou que esta exportação não criou uma linha de timesheet. Somente então liberar a tentativa de criar novamente. Continuar?'))return;
+  button.disabled=true;
+  try{
+    var updated=await chk(sb.from('odoo_timesheet_exports').update({
+      status:'error',
+      last_error:'Usuário confirmou que verificou no Odoo e não encontrou a linha; nova tentativa autorizada manualmente.',
+      updated_at:new Date().toISOString()
+    }).eq('entry_id',id).eq('status','needs_review').select('entry_id').maybeSingle());
+    if(!updated.data)throw new Error('O estado mudou; atualize a lista antes de tentar novamente.');
+    await loadOdooExportRows();
+    $('#odooExportStatus').textContent='Nova tentativa liberada após sua confirmação. O registro está selecionado; revise e envie.';
+  }catch(err){
+    $('#odooExportStatus').textContent='Não foi possível liberar a tentativa: '+(err&&err.message?err.message:'erro de conexão');
+  }finally{
+    button.disabled=false;
+  }
 });
 $('#odooExportGo').addEventListener('click',async function(){
   var btn=this,ids=Array.from(odooExportSelection),selectedDate=$('#odooExportDate').value||sel;
