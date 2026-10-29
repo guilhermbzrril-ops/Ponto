@@ -1074,7 +1074,7 @@ $('#odooExportGo').addEventListener('click',async function(){
     var localDates={};afterFlush.forEach(function(e){localDates[e.id]=dayKey(e.start)});
     var timeZone=Intl.DateTimeFormat().resolvedOptions().timeZone;
     if(!timeZone)throw new Error('Não foi possível detectar o fuso horário do navegador.');
-    var result=await sb.functions.invoke('odoo-timesheets',{body:{entry_ids:ids,local_dates:localDates,time_zone:timeZone}});
+    var result=await sb.functions.invoke('odoo-timesheets',{body:{entry_ids:ids,selected_date:selectedDate,local_dates:localDates,time_zone:timeZone}});
     if(result.error)throw result.error;
     var outcomes=result.data&&result.data.results||[];
     var ok=outcomes.filter(function(x){return x.status==='synced'}).length;
