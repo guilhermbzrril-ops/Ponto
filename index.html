@@ -1105,7 +1105,8 @@ $('#odooExportGo').addEventListener('click',async function(){
   if(chosen.some(function(e){return !e||e.end==null||dayKey(e.start)!==selectedDate||crossesLocalMidnight(e)})){
     $('#odooExportStatus').textContent='A seleção mudou, contém uma atividade em andamento ou cruza a meia-noite. Atualize a lista; atividades que cruzam dias precisam ser divididas antes da exportação.';return;
   }
-  if(!confirm('Enviar '+ids.length+' registro(s) da data '+selectedDate+' ao Odoo? Registros vinculados serão atualizados, não recriados.'))return;
+  var forceUpdate=!!$('#odooExportForceUpdate').checked;
+  if(!confirm((forceUpdate?'FORÇAR ATUALIZAÇÃO de ':'Enviar ')+ids.length+' registro(s) da data '+selectedDate+' ao Odoo? '+(forceUpdate?'Apenas linhas já vinculadas serão atualizadas; nenhuma linha nova será criada.':'Registros vinculados serão atualizados, não recriados.')))return;
   var beforeSignatures={};chosen.forEach(function(e){beforeSignatures[e.id]=exportSignature(e)});
   btn.disabled=true;$('#odooExportDate').disabled=true;$('#odooExportRefresh').disabled=true;$('#odooExportStatus').textContent='Enviando para o Odoo…';
   try{
@@ -1121,7 +1122,7 @@ $('#odooExportGo').addEventListener('click',async function(){
     if(!timeZone)throw new Error('Não foi possível detectar o fuso horário do navegador.');
     var result=await sb.functions.invoke('odoo-timesheets',{body:{
       entry_ids:ids,selected_date:selectedDate,local_dates:localDates,
-      time_zone:timeZone,entry_signatures:entrySignatures
+      time_zone:timeZone,entry_signatures:entrySignatures,force_update:forceUpdate
     }});
     if(result.error){
       var errorMessage=result.error.message||'A função de exportação retornou um erro.';
