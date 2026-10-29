@@ -297,7 +297,6 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
       <summary style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;font-weight:500;color:var(--muted);padding:4px 7px;border:1px solid var(--line);border-radius:6px;list-style-position:inside">ⓘ Diagnóstico</summary>
       <pre id="odooExportDebugText" style="white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,Consolas,monospace;margin:8px 0 0;padding:9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text)">Aguardando leitura dos registros…</pre>
     </details>
-    <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--muted);padding:4px 7px;border:1px solid var(--line);border-radius:6px"><input type="checkbox" id="odooExportForceUpdate" style="margin:0;width:12px;height:12px" checked><span>Forçar write</span></label>
   </div>
   </div>
 </dialog>
@@ -326,13 +325,13 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 <dialog id="dlgEntry">
   <div class="dh"><h2 id="eTitle">Editar atividade</h2><button class="icon-btn" data-close aria-label="Fechar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <div class="db">
-    <div class="field"><label for="eDesc">Descrição</label><input id="eDesc" list="descList" autocomplete="off" maxlength="500"></div>
+    <div class="field"><label for="eDesc">Descrição</label><input id="eDesc" list="descList" autocomplete="off" maxlength="500" name="oxfy-entry-description" data-lpignore="true" data-1p-ignore="true"></div>
     <div class="field"><label for="eProj">Projeto</label><select id="eProj"></select></div>
     <div class="grid3">
       <div class="field"><label for="eDate">Data de início</label><input type="date" id="eDate"></div>
-      <div class="field"><label for="eStart">Início</label><input type="time" step="1" id="eStart"></div>
+      <div class="field"><label for="eStart">Início</label><input type="time" step="1" id="eStart" name="oxfy-start-time" autocomplete="off" data-lpignore="true" data-1p-ignore="true"></div>
       <div class="field"><label for="eEndDate">Data de fim</label><input type="date" id="eEndDate"></div>
-      <div class="field"><label for="eEnd">Fim</label><input type="time" step="1" id="eEnd"></div>
+      <div class="field"><label for="eEnd">Fim</label><input type="time" step="1" id="eEnd" name="oxfy-end-time" autocomplete="off" data-lpignore="true" data-1p-ignore="true"></div>
     </div>
     <p class="hint" id="eHint"></p>
   </div>
@@ -511,8 +510,8 @@ function rowHtml(e,showProj){
   return '<div class="row'+(live?' live':'')+'" data-id="'+esc(e.id)+'"'+pcStyle(p)+'>'+
     '<div class="d'+(e.desc?'':' none')+'">'+(e.desc?esc(e.desc):'(sem descrição)')+'</div>'+
     '<div class="p">'+(showProj?'<span class="dot"></span>'+(p?esc(p.name)+(p.client?' · '+esc(p.client):''):'Sem projeto'):'')+'</div>'+
-    '<div class="t num"><input class="tin" data-tin="start" value="'+hm(e.start)+'" inputmode="numeric" aria-label="Hora de início" title="Clique para editar (HH:MM)">'+
-      '–'+(live?'<span class="now">agora</span>':'<input class="tin" data-tin="end" value="'+hm(e.end)+'" inputmode="numeric" aria-label="Hora de fim" title="'+(dayKey(e.end)!==dayKey(e.start)?'Fim em '+dayKey(e.end):'Clique para editar (HH:MM)')+'">')+
+    '<div class="t num"><input class="tin" data-tin="start" value="'+hm(e.start)+'" inputmode="numeric" autocomplete="off" name="oxfy-inline-start-'+e.id+'" data-lpignore="true" data-1p-ignore="true" spellcheck="false" aria-label="Hora de início" title="Clique para editar (HH:MM)">'+
+      '–'+(live?'<span class="now">agora</span>':'<input class="tin" data-tin="end" value="'+hm(e.end)+'" inputmode="numeric" autocomplete="off" name="oxfy-inline-end-'+e.id+'" data-lpignore="true" data-1p-ignore="true" spellcheck="false" aria-label="Hora de fim" title="'+(dayKey(e.end)!==dayKey(e.start)?'Fim em '+dayKey(e.end):'Clique para editar (HH:MM)')+'">')+
       (!live&&dayKey(e.end)!==dayKey(e.start)?'<span class="hint">('+esc(dayKey(e.end))+')</span>':'')+'</div>'+
     '<div class="du num" data-dur="'+esc(e.id)+'"></div>'+
     '<div class="acts">'+
@@ -1086,8 +1085,7 @@ $('#odooExportGo').addEventListener('click',async function(){
   if(chosen.some(function(e){return !e||e.end==null||dayKey(e.start)!==selectedDate||crossesLocalMidnight(e)})){
     $('#odooExportStatus').textContent='A seleção mudou, contém uma atividade em andamento ou cruza a meia-noite. Atualize a lista; atividades que cruzam dias precisam ser divididas antes da exportação.';return;
   }
-  var forceUpdate=!!$('#odooExportForceUpdate').checked;
-  if(!confirm((forceUpdate?'FORÇAR ATUALIZAÇÃO de ':'Enviar ')+ids.length+' registro(s) da data '+selectedDate+' ao Odoo? '+(forceUpdate?'Apenas linhas já vinculadas serão atualizadas; nenhuma linha nova será criada.':'Registros vinculados serão atualizados, não recriados.')))return;
+  if(!confirm('Enviar '+ids.length+' registro(s) da data '+selectedDate+' ao Odoo? As atividades já vinculadas serão atualizadas; as novas serão criadas.'))return;
   var beforeSignatures={};chosen.forEach(function(e){beforeSignatures[e.id]=exportSignature(e)});
   btn.disabled=true;$('#odooExportDate').disabled=true;$('#odooExportStatus').textContent='Enviando para o Odoo…';
   try{
