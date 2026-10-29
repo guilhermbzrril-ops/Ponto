@@ -942,6 +942,7 @@ function exportStatusFor(e){
   if(r.status==='needs_review')return {label:r.odoo_line_id?'Resultado incerto — revisar linha existente':'Resultado incerto — verificar Odoo antes de repetir',status:'needs_review'};
   if(r.status==='exporting')return {label:'Envio em andamento / aguardando recuperação',status:'exporting'};
   if(r.status==='error')return {label:'Erro no envio',status:'error'};
+  if(r.status==='changed')return {label:'Alterado — sincronizar',status:'changed'};
   if(r.odoo_line_id&&!exportSignatureMatches(r.exported_signature,e))return {label:'Alterado — sincronizar',status:'changed'};
   if(r.odoo_line_id)return {label:'Sincronizado',status:'synced'};
   return {label:'Pendente',status:'pending'};
