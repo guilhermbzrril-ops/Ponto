@@ -911,9 +911,11 @@ var odooExportStatusRows=[];
 var odooExportSelection=new Set();
 var odooExportLoadSeq=0;
 function exportSignature(e){
-  var startedAt=new Date(e.start).toISOString(),localDate=dayKey(e.start);
+  var startedAt=new Date(e.start).toISOString(),localDate=dayKey(e.start),p=projById(e.projectId);
   var value={entry_id:e.id,project_id:e.projectId||null,description:e.desc||'',started_at:startedAt,ended_at:e.end==null?null:new Date(e.end).toISOString()};
   if(localDate!==startedAt.slice(0,10))value.local_date=localDate;
+  if(p&&p.odooProjectId!=null)value.odoo_project_id=Number(p.odooProjectId);
+  if(e.odooTaskId!=null)value.odoo_task_id=Number(e.odooTaskId);
   return JSON.stringify(value);
 }
 function exportSignatureMatches(saved,e){
@@ -928,6 +930,8 @@ function exportSignatureMatches(saved,e){
       ended_at:old.ended_at?new Date(old.ended_at).toISOString():null
     };
     if(typeof old.local_date==='string')value.local_date=old.local_date;
+    if(Object.prototype.hasOwnProperty.call(old,'odoo_project_id'))value.odoo_project_id=Number(old.odoo_project_id);
+    if(Object.prototype.hasOwnProperty.call(old,'odoo_task_id'))value.odoo_task_id=Number(old.odoo_task_id);
     return JSON.stringify(value)===exportSignature(e);
   }catch(_){return false}
 }
