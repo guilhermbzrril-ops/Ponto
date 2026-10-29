@@ -781,15 +781,36 @@ $('#btnProjects').addEventListener('click',function(){$('#pColor').value=PALETTE
 // ---------- OXFY → Odoo Timesheets ----------
 var odooExportStatusRows=[];
 var odooExportSelection=new Set();
+var odooExportLoadSeq=0;
 function exportSignature(e){
-  return JSON.stringify({entry_id:e.id,project_id:e.projectId||null,description:e.desc||'',started_at:new Date(e.start).toISOString(),ended_at:e.end==null?null:new Date(e.end).toISOString()});
+  var startedAt=new Date(e.start).toISOString(),localDate=dayKey(e.start);
+  var value={entry_id:e.id,project_id:e.projectId||null,description:e.desc||'',started_at:startedAt,ended_at:e.end==null?null:new Date(e.end).toISOString()};
+  if(localDate!==startedAt.slice(0,10))value.local_date=localDate;
+  return JSON.stringify(value);
+}
+function exportSignatureMatches(saved,e){
+  if(!saved)return false;
+  try{
+    var old=JSON.parse(saved);
+    var value={
+      entry_id:old.entry_id,
+      project_id:old.project_id==null?null:old.project_id,
+      description:old.description==null?'':old.description,
+      started_at:new Date(old.started_at).toISOString(),
+      ended_at:old.ended_at?new Date(old.ended_at).toISOString():null
+    };
+    if(typeof old.local_date==='string')value.local_date=old.local_date;
+    return JSON.stringify(value)===exportSignature(e);
+  }catch(_){return false}
 }
 function exportDuration(e){return e.end==null?0:Math.max(0,(e.end-e.start)/3600000)}
 function exportStatusFor(e){
   var r=odooExportStatusRows.find(function(x){return x.entry_id===e.id});
   if(!r)return {label:'Pendente',status:'pending'};
+  if(r.status==='needs_review')return {label:r.odoo_line_id?'Resultado incerto — revisar linha existente':'Resultado incerto — verificar Odoo antes de repetir',status:'needs_review'};
+  if(r.status==='exporting')return {label:'Envio em andamento / aguardando recuperação',status:'exporting'};
   if(r.status==='error')return {label:'Erro no envio',status:'error'};
-  if(r.odoo_line_id&&r.exported_signature!==exportSignature(e))return {label:'Alterado — sincronizar',status:'changed'};
+  if(r.odoo_line_id&&!exportSignatureMatches(r.exported_signature,e))return {label:'Alterado — sincronizar',status:'changed'};
   if(r.odoo_line_id)return {label:'Sincronizado',status:'synced'};
   return {label:'Pendente',status:'pending'};
 }
@@ -801,26 +822,42 @@ async function openOdooExport(){
   await loadOdooExportRows();
 }
 async function loadOdooExportRows(){
+  var request=++odooExportLoadSeq;
   var date=$('#odooExportDate').value||sel;
   $('#odooExportRows').innerHTML='<p class="hint">Carregando…</p>';
   try{
     var r=await chk(sb.from('odoo_timesheet_exports').select('entry_id,odoo_line_id,exported_signature,status,last_exported_at,last_error'));
+    if(request!==odooExportLoadSeq||date!==($('#odooExportDate').value||sel))return;
     odooExportStatusRows=r.data||[];
     var rows=state.entries.filter(function(e){return dayKey(e.start)===date}).sort(function(a,b){return a.start-b.start});
-    odooExportSelection=new Set(rows.filter(function(e){return e.end!=null&&exportStatusFor(e).status!=='synced'}).map(function(e){return e.id}));
+    odooExportSelection=new Set(rows.filter(function(e){
+      if(e.end==null)return false;
+      var st=exportStatusFor(e),saved=odooExportStatusRows.find(function(x){return x.entry_id===e.id});
+      if(st.status==='synced'||st.status==='exporting')return false;
+      if(st.status==='needs_review'&&saved&&!saved.odoo_line_id)return false;
+      return true;
+    }).map(function(e){return e.id}));
     var total=rows.reduce(function(a,e){return a+exportDuration(e)},0);
-    $('#odooExportSummary').textContent=rows.length+' registros · '+(total).toFixed(2)+' h no dia selecionado.';
+    var cross=rows.filter(function(e){return e.end!=null&&dayKey(e.end-1)!==dayKey(e.start)}).length;
+    $('#odooExportSummary').textContent=rows.length+' registros · '+total.toFixed(2)+' h · data Odoo: '+date+'.'+
+      (cross?' '+cross+' atividade(s) cruza(m) a meia-noite; a duração inteira será registrada no dia de início.':'');
     $('#odooExportRows').innerHTML=rows.length?rows.map(function(e){
       var st=exportStatusFor(e),p=projById(e.projectId),live=e.end==null;
       var checked=odooExportSelection.has(e.id)?' checked':'';
-      var disabled=live?' disabled':'';
-      var err=odooExportStatusRows.find(function(x){return x.entry_id===e.id});
+      var saved=odooExportStatusRows.find(function(x){return x.entry_id===e.id});
+      var needsManualReview=st.status==='needs_review'&&saved&&!saved.odoo_line_id;
+      var disabled=live||st.status==='exporting'||needsManualReview?' disabled':'';
+      var err=saved;
+      var crosses=e.end!=null&&dayKey(e.end-1)!==dayKey(e.start);
       return '<label class="export-row" style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)">'+
         '<input type="checkbox" data-export-entry="'+esc(e.id)+'"'+checked+disabled+' style="margin-top:4px">'+
-        '<span style="flex:1;min-width:0"><strong>'+esc(e.desc||'(sem descrição)')+'</strong><br><span class="hint">'+esc(p?p.name:'Sem projeto')+' · '+hm(e.start)+'–'+(live?'em andamento':hm(e.end))+' · '+exportDuration(e).toFixed(2)+' h</span><br><span class="hint">'+esc(st.label)+(err&&err.last_error?' — '+esc(err.last_error):'')+'</span></span></label>';
+        '<span style="flex:1;min-width:0"><strong>'+esc(e.desc||'(sem descrição)')+'</strong><br><span class="hint">'+esc(p?p.name:'Sem projeto')+' · '+hm(e.start)+'–'+(live?'em andamento':hm(e.end))+' · '+exportDuration(e).toFixed(2)+' h</span>'+
+        (crosses?'<br><span class="hint">Cruza a meia-noite: será lançado na data de início ('+dayKey(e.start)+').</span>':'')+
+        '<br><span class="hint">'+esc(st.label)+(err&&err.last_error?' — '+esc(err.last_error):'')+'</span></span></label>';
     }).join(''):'<p class="hint">Nenhum registro neste dia.</p>';
-    $('#odooExportStatus').textContent='Selecione os registros finalizados. Registros já exportados serão atualizados no mesmo ID do Odoo.';
+    $('#odooExportStatus').textContent='Revise as datas antes do envio. Uma atividade exportada será atualizada pela linha Odoo já vinculada, não recriada.';
   }catch(err){
+    if(request!==odooExportLoadSeq)return;
     $('#odooExportRows').innerHTML='<p class="hint">Não foi possível carregar o status de exportação.</p>';
     $('#odooExportStatus').textContent=err&&err.message?err.message:'Erro de conexão.';
   }
@@ -832,24 +869,35 @@ $('#odooExportRows').addEventListener('change',function(ev){
   if(cb.checked)odooExportSelection.add(cb.getAttribute('data-export-entry'));else odooExportSelection.delete(cb.getAttribute('data-export-entry'));
 });
 $('#odooExportGo').addEventListener('click',async function(){
-  var btn=this,ids=Array.from(odooExportSelection);
+  var btn=this,ids=Array.from(odooExportSelection),selectedDate=$('#odooExportDate').value||sel;
   if(!ids.length){$('#odooExportStatus').textContent='Selecione pelo menos um registro.';return}
-  if(!confirm('Enviar '+ids.length+' registro(s) ao Odoo? Os registros já exportados serão atualizados, não duplicados.'))return;
-  btn.disabled=true;$('#odooExportStatus').textContent='Enviando para o Odoo…';
+  var chosen=ids.map(function(id){return entryById(id)});
+  if(chosen.some(function(e){return !e||e.end==null||dayKey(e.start)!==selectedDate})){
+    $('#odooExportStatus').textContent='A seleção mudou ou contém uma atividade em andamento. Atualize a lista e tente novamente.';return;
+  }
+  if(!confirm('Enviar '+ids.length+' registro(s) da data '+selectedDate+' ao Odoo? Registros vinculados serão atualizados, não recriados.'))return;
+  btn.disabled=true;$('#odooExportDate').disabled=true;$('#odooExportStatus').textContent='Enviando para o Odoo…';
   try{
     await flushNow();
-    var localDates={};ids.forEach(function(id){var e=entryById(id);if(e)localDates[id]=dayKey(e.start)});var result=await sb.functions.invoke('odoo-timesheets',{body:{entry_ids:ids,local_dates:localDates}});
+    var localDates={};ids.forEach(function(id){var e=entryById(id);if(e)localDates[id]=dayKey(e.start)});
+    var timeZone=Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if(!timeZone)throw new Error('Não foi possível detectar o fuso horário do navegador.');
+    var result=await sb.functions.invoke('odoo-timesheets',{body:{entry_ids:ids,local_dates:localDates,time_zone:timeZone}});
     if(result.error)throw result.error;
     var outcomes=result.data&&result.data.results||[];
     var ok=outcomes.filter(function(x){return x.status==='synced'}).length;
-    var fail=outcomes.length-ok;
-    $('#odooExportStatus').textContent=ok+' registro(s) sincronizado(s)'+(fail?'; '+fail+' erro(s). Veja o status de cada linha.':' com sucesso.');
+    var skipped=outcomes.filter(function(x){return x.status==='skipped'}).length;
+    var fail=outcomes.filter(function(x){return x.status!=='synced'&&x.status!=='skipped'}).length;
+    var message=ok+' registro(s) sincronizado(s)'+(skipped?'; '+skipped+' ignorado(s) por estarem sincronizados/em revisão ou em outro envio':'')+(fail?'; '+fail+' erro(s)/revisão necessária(s). Veja o status de cada linha.':'.');
+    $('#odooExportStatus').textContent=message;
     await loadOdooExportRows();
-    if(fail)toast('Exportação parcial: confira os erros.');else toast('Timesheets sincronizados com o Odoo.');
+    if(fail)toast('Exportação parcial: confira os erros e os casos para revisão.');
+    else if(skipped)toast('Alguns registros foram ignorados; confira o status.');
+    else toast('Timesheets sincronizados com o Odoo.');
   }catch(err){
     $('#odooExportStatus').textContent='Falha na exportação: '+(err&&err.message?err.message:'erro de conexão');
     toast('Não foi possível exportar os timesheets.');
-  }finally{btn.disabled=false}
+  }finally{btn.disabled=false;$('#odooExportDate').disabled=false}
 });
 
 $('#odooImport').addEventListener('click',importOdooTasks);
