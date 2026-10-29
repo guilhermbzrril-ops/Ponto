@@ -826,9 +826,24 @@ async function loadOdooExportRows(){
   var date=$('#odooExportDate').value||sel;
   $('#odooExportRows').innerHTML='<p class="hint">Carregando…</p>';
   try{
-    var r=await chk(sb.from('odoo_timesheet_exports').select('entry_id,odoo_line_id,exported_signature,status,last_exported_at,last_error'));
+    var statusColumns='entry_id,odoo_line_id,exported_signature,status,last_exported_at,last_error,updated_at';
+    var r=await chk(sb.from('odoo_timesheet_exports').select(statusColumns));
     if(request!==odooExportLoadSeq||date!==($('#odooExportDate').value||sel))return;
     odooExportStatusRows=r.data||[];
+    // A crashed browser/request must not leave a row permanently locked as "exporting".
+    // After 15 minutes the result is uncertain, so require Odoo verification instead of auto-recreating.
+    var staleCutoff=new Date(Date.now()-15*60*1000).toISOString();
+    var staleIds=odooExportStatusRows.filter(function(x){return x.status==='exporting'&&x.updated_at&&Date.parse(x.updated_at)<Date.parse(staleCutoff)}).map(function(x){return x.entry_id});
+    if(staleIds.length){
+      await chk(sb.from('odoo_timesheet_exports').update({
+        status:'needs_review',
+        last_error:'O envio ficou sem confirmação por mais de 15 minutos. Verifique o Odoo antes de autorizar nova tentativa.',
+        updated_at:new Date().toISOString()
+      }).in('entry_id',staleIds).eq('status','exporting').lt('updated_at',staleCutoff));
+      r=await chk(sb.from('odoo_timesheet_exports').select(statusColumns));
+      if(request!==odooExportLoadSeq||date!==($('#odooExportDate').value||sel))return;
+      odooExportStatusRows=r.data||[];
+    }
     var rows=state.entries.filter(function(e){return dayKey(e.start)===date}).sort(function(a,b){return a.start-b.start});
     odooExportSelection=new Set(rows.filter(function(e){
       if(e.end==null)return false;
