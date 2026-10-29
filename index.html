@@ -243,6 +243,7 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
   <span class="who" id="who"></span>
   <button class="btn" id="btnChat">Chat</button>
   <button class="btn" id="btnProjects">Projetos</button>
+  <button class="btn" id="btnOdooTimesheets">Exportar timesheet</button>
   <button class="btn" id="btnBackup">Backup e exportar</button>
   <button class="btn" id="btnAccount">Minha conta</button>
   <button class="btn" id="btnLogout">Sair</button>
@@ -275,6 +276,18 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
   <section id="list"></section>
 </main>
 </div>
+
+<!-- Exportação OXFY → Odoo Timesheets -->
+<dialog id="dlgOdooTimesheets">
+  <div class="dh"><h2>Exportar para o Odoo</h2><button class="icon-btn" data-close aria-label="Fechar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="db">
+    <div class="field"><label for="odooExportDate">Dia dos registros</label><input type="date" id="odooExportDate"></div>
+    <div id="odooExportSummary" class="hint">Carregando registros…</div>
+    <div id="odooExportRows" class="plist"></div>
+    <div class="df"><button class="btn" data-close>Cancelar</button><button class="btn primary" id="odooExportGo">Enviar selecionados</button></div>
+    <p class="hint" id="odooExportStatus">Revise os registros antes de enviar. Registros já exportados serão atualizados, não duplicados.</p>
+  </div>
+</dialog>
 
 <!-- Projetos -->
 <dialog id="dlgProjects">
@@ -764,6 +777,81 @@ $('#eSave').addEventListener('click',function(){
 
 /* ---------- diálogo de projetos ---------- */
 $('#btnProjects').addEventListener('click',function(){$('#pColor').value=PALETTE[state.projects.length%PALETTE.length];renderProjectsDialog();$('#dlgProjects').showModal();$('#pName').focus()});
+
+// ---------- OXFY → Odoo Timesheets ----------
+var odooExportStatusRows=[];
+var odooExportSelection=new Set();
+function exportSignature(e){
+  return JSON.stringify({entry_id:e.id,project_id:e.projectId||null,description:e.desc||'',started_at:new Date(e.start).toISOString(),ended_at:e.end==null?null:new Date(e.end).toISOString()});
+}
+function exportDuration(e){return e.end==null?0:Math.max(0,(e.end-e.start)/3600000)}
+function exportStatusFor(e){
+  var r=odooExportStatusRows.find(function(x){return x.entry_id===e.id});
+  if(!r)return {label:'Pendente',status:'pending'};
+  if(r.status==='error')return {label:'Erro no envio',status:'error'};
+  if(r.odoo_line_id&&r.exported_signature!==exportSignature(e))return {label:'Alterado — sincronizar',status:'changed'};
+  if(r.odoo_line_id)return {label:'Sincronizado',status:'synced'};
+  return {label:'Pendente',status:'pending'};
+}
+async function openOdooExport(){
+  if(!sb||!currentUid){toast('Entre na sua conta antes de exportar.');return}
+  $('#odooExportDate').value=sel;
+  $('#odooExportStatus').textContent='Carregando status de sincronização…';
+  $('#dlgOdooTimesheets').showModal();
+  await loadOdooExportRows();
+}
+async function loadOdooExportRows(){
+  var date=$('#odooExportDate').value||sel;
+  $('#odooExportRows').innerHTML='<p class="hint">Carregando…</p>';
+  try{
+    var r=await chk(sb.from('odoo_timesheet_exports').select('entry_id,odoo_line_id,exported_signature,status,last_exported_at,last_error'));
+    odooExportStatusRows=r.data||[];
+    var rows=state.entries.filter(function(e){return dayKey(e.start)===date}).sort(function(a,b){return a.start-b.start});
+    odooExportSelection=new Set(rows.filter(function(e){return e.end!=null&&exportStatusFor(e).status!=='synced'}).map(function(e){return e.id}));
+    var total=rows.reduce(function(a,e){return a+exportDuration(e)},0);
+    $('#odooExportSummary').textContent=rows.length+' registros · '+(total).toFixed(2)+' h no dia selecionado.';
+    $('#odooExportRows').innerHTML=rows.length?rows.map(function(e){
+      var st=exportStatusFor(e),p=projById(e.projectId),live=e.end==null;
+      var checked=odooExportSelection.has(e.id)?' checked':'';
+      var disabled=live?' disabled':'';
+      var err=odooExportStatusRows.find(function(x){return x.entry_id===e.id});
+      return '<label class="export-row" style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)">'+
+        '<input type="checkbox" data-export-entry="'+esc(e.id)+'"'+checked+disabled+' style="margin-top:4px">'+
+        '<span style="flex:1;min-width:0"><strong>'+esc(e.desc||'(sem descrição)')+'</strong><br><span class="hint">'+esc(p?p.name:'Sem projeto')+' · '+hm(e.start)+'–'+(live?'em andamento':hm(e.end))+' · '+exportDuration(e).toFixed(2)+' h</span><br><span class="hint">'+esc(st.label)+(err&&err.last_error?' — '+esc(err.last_error):'')+'</span></span></label>';
+    }).join(''):'<p class="hint">Nenhum registro neste dia.</p>';
+    $('#odooExportStatus').textContent='Selecione os registros finalizados. Registros já exportados serão atualizados no mesmo ID do Odoo.';
+  }catch(err){
+    $('#odooExportRows').innerHTML='<p class="hint">Não foi possível carregar o status de exportação.</p>';
+    $('#odooExportStatus').textContent=err&&err.message?err.message:'Erro de conexão.';
+  }
+}
+$('#btnOdooTimesheets').addEventListener('click',openOdooExport);
+$('#odooExportDate').addEventListener('change',loadOdooExportRows);
+$('#odooExportRows').addEventListener('change',function(ev){
+  var cb=ev.target.closest('[data-export-entry]');if(!cb)return;
+  if(cb.checked)odooExportSelection.add(cb.getAttribute('data-export-entry'));else odooExportSelection.delete(cb.getAttribute('data-export-entry'));
+});
+$('#odooExportGo').addEventListener('click',async function(){
+  var btn=this,ids=Array.from(odooExportSelection);
+  if(!ids.length){$('#odooExportStatus').textContent='Selecione pelo menos um registro.';return}
+  if(!confirm('Enviar '+ids.length+' registro(s) ao Odoo? Os registros já exportados serão atualizados, não duplicados.'))return;
+  btn.disabled=true;$('#odooExportStatus').textContent='Enviando para o Odoo…';
+  try{
+    await flushNow();
+    var result=await sb.functions.invoke('odoo-timesheets',{body:{entry_ids:ids}});
+    if(result.error)throw result.error;
+    var outcomes=result.data&&result.data.results||[];
+    var ok=outcomes.filter(function(x){return x.status==='synced'}).length;
+    var fail=outcomes.length-ok;
+    $('#odooExportStatus').textContent=ok+' registro(s) sincronizado(s)'+(fail?'; '+fail+' erro(s). Veja o status de cada linha.':' com sucesso.');
+    await loadOdooExportRows();
+    if(fail)toast('Exportação parcial: confira os erros.');else toast('Timesheets sincronizados com o Odoo.');
+  }catch(err){
+    $('#odooExportStatus').textContent='Falha na exportação: '+(err&&err.message?err.message:'erro de conexão');
+    toast('Não foi possível exportar os timesheets.');
+  }finally{btn.disabled=false}
+});
+
 $('#odooImport').addEventListener('click',importOdooTasks);
 async function importOdooTasks(){
   var btn=$('#odooImport'),status=$('#odooImportStatus');
