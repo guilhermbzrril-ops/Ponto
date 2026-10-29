@@ -1101,7 +1101,7 @@ $('#odooExportGo').addEventListener('click',async function(){
     if(!timeZone)throw new Error('Não foi possível detectar o fuso horário do navegador.');
     var result=await sb.functions.invoke('odoo-timesheets',{body:{
       entry_ids:ids,selected_date:selectedDate,local_dates:localDates,
-      time_zone:timeZone,entry_signatures:entrySignatures,force_update:forceUpdate
+      time_zone:timeZone,entry_signatures:entrySignatures
     }});
     if(result.error){
       var errorMessage=result.error.message||'A função de exportação retornou um erro.';
