@@ -166,7 +166,8 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 .db{padding:18px;display:grid;gap:14px}
 .df{display:flex;gap:10px;justify-content:flex-end;padding:14px 18px;border-top:1px solid var(--line)}
 .field label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
-.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.grid3{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+@media(max-width:680px){.grid3{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .pform{display:grid;grid-template-columns:1fr 1fr 46px auto;gap:8px}
 .swatches{display:flex;gap:8px;flex-wrap:wrap}
 .sw{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);padding:0}
@@ -318,8 +319,9 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
     <div class="field"><label for="eDesc">Descrição</label><input id="eDesc" list="descList" autocomplete="off" maxlength="500"></div>
     <div class="field"><label for="eProj">Projeto</label><select id="eProj"></select></div>
     <div class="grid3">
-      <div class="field"><label for="eDate">Data</label><input type="date" id="eDate"></div>
+      <div class="field"><label for="eDate">Data de início</label><input type="date" id="eDate"></div>
       <div class="field"><label for="eStart">Início</label><input type="time" step="1" id="eStart"></div>
+      <div class="field"><label for="eEndDate">Data de fim</label><input type="date" id="eEndDate"></div>
       <div class="field"><label for="eEnd">Fim</label><input type="time" step="1" id="eEnd"></div>
     </div>
     <p class="hint" id="eHint"></p>
@@ -500,7 +502,8 @@ function rowHtml(e,showProj){
     '<div class="d'+(e.desc?'':' none')+'">'+(e.desc?esc(e.desc):'(sem descrição)')+'</div>'+
     '<div class="p">'+(showProj?'<span class="dot"></span>'+(p?esc(p.name)+(p.client?' · '+esc(p.client):''):'Sem projeto'):'')+'</div>'+
     '<div class="t num"><input class="tin" data-tin="start" value="'+hm(e.start)+'" inputmode="numeric" aria-label="Hora de início" title="Clique para editar (HH:MM)">'+
-      '–'+(live?'<span class="now">agora</span>':'<input class="tin" data-tin="end" value="'+hm(e.end)+'" inputmode="numeric" aria-label="Hora de fim" title="Clique para editar (HH:MM)">')+'</div>'+
+      '–'+(live?'<span class="now">agora</span>':'<input class="tin" data-tin="end" value="'+hm(e.end)+'" inputmode="numeric" aria-label="Hora de fim" title="'+(dayKey(e.end)!==dayKey(e.start)?'Fim em '+dayKey(e.end):'Clique para editar (HH:MM)')+'">')+
+      (!live&&dayKey(e.end)!==dayKey(e.start)?'<span class="hint">('+esc(dayKey(e.end))+')</span>':'')+'</div>'+
     '<div class="du num" data-dur="'+esc(e.id)+'"></div>'+
     '<div class="acts">'+
       '<button class="play" data-act="toggle" aria-label="'+(live?'Parar':'Iniciar de novo')+'" title="'+(live?'Parar':'Iniciar de novo')+'">'+(live?ICON_STOP:ICON_PLAY)+'</button>'+
@@ -836,9 +839,12 @@ function openEntry(e){
   $('#eDate').value=e?dayKey(e.start):sel;
   $('#eStart').value=e?hms(e.start):'09:00:00';
   var live=e&&e.end==null;
+  $('#eEndDate').value=e&&!live?dayKey(e.end):(e?dayKey(e.start):sel);
   $('#eEnd').value=e&&!live?hms(e.end):(e?'':'10:00:00');
+  $('#eEndDate').disabled=!!live;
   $('#eEnd').disabled=!!live;
-  $('#eHint').textContent=live?'Esta atividade está em andamento. Pare o cronômetro para definir o fim.':'';
+  var crosses=e&&!live&&dayKey(e.start)!==dayKey(e.end);
+  $('#eHint').textContent=live?'Esta atividade está em andamento. Pare o cronômetro para definir o fim.':(crosses?'Esta atividade cruza a meia-noite. A data de fim é editada separadamente.':'');
   $('#dlgEntry').showModal();
 }
 $('#dAdd').addEventListener('click',function(){openEntry(null)});
@@ -867,16 +873,20 @@ $('#eProj').addEventListener('change',function(){
   var task=resolveOdooTask($('#eDesc').value,this.value,editingOdooTaskId);
   editingOdooTaskId=task&&task.taskId!=null?Number(task.taskId):null;
 });
+$('#eDate').addEventListener('change',function(){
+  if(!editingId&&(!$('#eEndDate').value||$('#eEndDate').value===$('#eDate').dataset.previousValue))$('#eEndDate').value=this.value;
+  this.dataset.previousValue=this.value;
+});
 $('#eSave').addEventListener('click',function(){
-  var date=$('#eDate').value,s=$('#eStart').value,en=$('#eEnd').value;
+  var date=$('#eDate').value,s=$('#eStart').value,endDate=$('#eEndDate').value,en=$('#eEnd').value;
   if(!date||!s){toast('Informe a data e o horário de início.');return}
   var start=toMs(date,s),end=null;
   var cur=editingId?entryById(editingId):null;
   var live=cur&&cur.end==null;
   if(!live){
-    if(!en){toast('Informe o horário de fim.');return}
-    end=toMs(date,en);
-    if(end<start){toast('O fim precisa ser depois do início.');return}
+    if(!endDate||!en){toast('Informe a data e o horário de fim.');return}
+    end=toMs(endDate,en);
+    if(endDate<date||end<=start){toast('A data e o horário de fim precisam ser posteriores ao início.');return}
   }
   var desc=$('#eDesc').value.trim(),proj=$('#eProj').value||null;
   var task=resolveOdooTask(desc,proj,editingOdooTaskId);
