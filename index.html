@@ -379,7 +379,9 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 'use strict';
 var PREFS_KEY='ponto.prefs.v1';
 var ODOO_TASKS_KEY='oxfy.odooTasks.v1';
-var odooTasks=[];
+var ODOO_PROJECTS_KEY='oxfy.odooProjects.v1';
+var odooTasks=[],odooProjects=[];
+var odooTaskNameCounts=Object.create(null),odooTaskProjectCounts=Object.create(null);
 var SUPABASE_URL='https://wfkypsbbfbtpsxlufozo.supabase.co';
 var SUPABASE_KEY='sb_publishable_6qKuHStezjK4YauR7DgsAQ_FGEn43re';
 var sb=null,currentUid,currentUser=null;
@@ -415,6 +417,9 @@ function load(){
     if(raw){var d=JSON.parse(raw);state.prefs=Object.assign({group:true,theme:''},d.prefs||{});}
     var cached=localStorage.getItem(ODOO_TASKS_KEY);
     if(cached){var parsed=JSON.parse(cached);if(Array.isArray(parsed))odooTasks=parsed;}
+    var cachedProjects=localStorage.getItem(ODOO_PROJECTS_KEY);
+    if(cachedProjects){var parsedProjects=JSON.parse(cachedProjects);if(Array.isArray(parsedProjects))odooProjects=parsedProjects;}
+    rebuildOdooTaskCounts();
   }catch(e){}
 }
 function validColor(c){return /^#[0-9a-f]{6}$/i.test(c||'')?c:''}
@@ -554,11 +559,15 @@ function tick(){
 
 function odooProjectOptions(selected){
   var byId={},items=[];
+  odooProjects.forEach(function(p){
+    if(p.projectId==null||!p.project)return;
+    var id=String(p.projectId);
+    if(!byId[id]){byId[id]={id:id,name:p.project};items.push(byId[id])}
+  });
   odooTasks.forEach(function(t){
     if(t.projectId==null||!t.project)return;
     var id=String(t.projectId);
-    if(!byId[id]){byId[id]={id:id,name:t.project,count:0};items.push(byId[id])}
-    byId[id].count++;
+    if(!byId[id]){byId[id]={id:id,name:t.project};items.push(byId[id])}
   });
   items.sort(function(a,b){return a.name.localeCompare(b.name,'pt-BR')||Number(a.id)-Number(b.id)});
   var h='<option value="">Automático — somente nome único</option>';
@@ -695,10 +704,17 @@ $('#tDesc').addEventListener('input',function(){
   var r=running();
   if(r){r.desc=this.value;r.odooTaskId=selectedOdooTaskId==null?null:Number(selectedOdooTaskId);save()}
 });
+function rebuildOdooTaskCounts(){
+  odooTaskNameCounts=Object.create(null);odooTaskProjectCounts=Object.create(null);
+  odooTasks.forEach(function(t){
+    var name=norm(t.task),key=name+'|'+String(t.projectId==null?'':t.projectId);
+    odooTaskNameCounts[name]=(odooTaskNameCounts[name]||0)+1;
+    odooTaskProjectCounts[key]=(odooTaskProjectCounts[key]||0)+1;
+  });
+}
 function odooTaskLabel(t){
-  var sameName=odooTasks.filter(function(x){return norm(x.task)===norm(t.task)});
-  var sameProject=odooTasks.filter(function(x){return norm(x.task)===norm(t.task)&&String(x.projectId||'')===String(t.projectId||'')});
-  var dupAcrossProjects=sameName.length>1,dupInProject=sameProject.length>1;
+  var name=norm(t.task),key=name+'|'+String(t.projectId==null?'':t.projectId);
+  var dupAcrossProjects=(odooTaskNameCounts[name]||0)>1,dupInProject=(odooTaskProjectCounts[key]||0)>1;
   var project=t.project||'';
   if(t.projectId!=null&&(dupAcrossProjects||dupInProject))project+=' · Project #'+t.projectId;
   if(dupInProject&&t.taskId!=null)project+=(project?' · ':'')+'Task #'+t.taskId;
@@ -1063,12 +1079,16 @@ async function importOdooTasks(){
         if(t.taskId!=null)return all.findIndex(function(x){return x.taskId===t.taskId})===i;
         return all.findIndex(function(x){return x.taskId==null&&norm(x.task)===norm(t.task)&&norm(x.project)===norm(t.project)})===i;
       });
+    var remoteProjects=(Array.isArray(result.data.projects)?result.data.projects:[])
+      .filter(function(p){return p&&p.project_id!=null&&typeof p.project==='string'&&p.project.trim()})
+      .map(function(p){return {projectId:Number(p.project_id),project:p.project.trim()}})
+      .filter(function(p,i,all){return all.findIndex(function(x){return x.projectId===p.projectId})===i});
     var importedProjects=[],seenOdooProjects={};
-    clean.forEach(function(t){
-      if(!t.project||t.projectId==null)return;
-      var id=String(t.projectId);
-      if(!seenOdooProjects[id]){seenOdooProjects[id]=1;importedProjects.push({projectId:Number(t.projectId),project:t.project})}
-    });
+    remoteProjects.concat(clean.filter(function(t){return t.project&&t.projectId!=null}).map(function(t){return {projectId:t.projectId,project:t.project}}))
+      .forEach(function(p){
+        var id=String(p.projectId);
+        if(!seenOdooProjects[id]){seenOdooProjects[id]=1;importedProjects.push({projectId:Number(p.projectId),project:p.project})}
+      });
     var addedProjects=0,linkedProjects=0;
     importedProjects.forEach(function(remote){
       var remoteId=String(remote.projectId);
@@ -1090,9 +1110,14 @@ async function importOdooTasks(){
       addedProjects++;
     });
     odooTasks=clean;
-    try{localStorage.setItem(ODOO_TASKS_KEY,JSON.stringify(odooTasks))}catch(e){}
+    rebuildOdooTaskCounts();
+    odooProjects=importedProjects;
+    try{
+      localStorage.setItem(ODOO_TASKS_KEY,JSON.stringify(odooTasks));
+      localStorage.setItem(ODOO_PROJECTS_KEY,JSON.stringify(odooProjects));
+    }catch(e){}
     save();renderProjectsDialog();render();
-    status.textContent=clean.length+' tarefas importadas; '+addedProjects+' projetos novos e '+linkedProjects+' vínculos identificados.';
+    status.textContent=clean.length+' tarefas importadas; '+odooProjects.length+' projetos disponíveis, '+addedProjects+' projetos novos e '+linkedProjects+' vínculos identificados.';
     toast('Importação do Odoo concluída.');
   }catch(err){
     console.error('Falha ao importar tarefas do Odoo:',err);
