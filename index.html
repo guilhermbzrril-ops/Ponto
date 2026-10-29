@@ -573,11 +573,13 @@ function odooProjectOptions(selected){
     if(!byId[id]){byId[id]={id:id,name:t.project};items.push(byId[id])}
   });
   items.sort(function(a,b){return a.name.localeCompare(b.name,'pt-BR')||Number(a.id)-Number(b.id)});
+  var projectNameCounts=Object.create(null);
+  items.forEach(function(p){var key=norm(p.name);projectNameCounts[key]=(projectNameCounts[key]||0)+1});
   var h='<option value="">Automático — somente nome único</option>';
   var chosen=selected==null?'':String(selected);
   if(chosen&&!byId[chosen])h+='<option value="'+esc(chosen)+'" selected>Vínculo atual (#'+esc(chosen)+')</option>';
   items.forEach(function(p){
-    var duplicates=items.filter(function(x){return norm(x.name)===norm(p.name)}).length>1;
+    var duplicates=projectNameCounts[norm(p.name)]>1;
     h+='<option value="'+esc(p.id)+'"'+(p.id===chosen?' selected':'')+'>'+esc(p.name)+(duplicates?' · ID '+esc(p.id):'')+'</option>';
   });
   return h;
@@ -728,7 +730,9 @@ function odooTaskById(id){
   return odooTasks.find(function(t){return t.taskId!=null&&String(t.taskId)===String(id)})||null;
 }
 function resolveOdooTask(description,localProjectId,preferredId){
-  var sameDescription=odooTasks.filter(function(t){return norm(t.task)===norm(description)});
+  var entered=norm(description);
+  var exactLabel=odooTasks.filter(function(t){return norm(odooTaskLabel(t))===entered});
+  var sameDescription=exactLabel.length===1?exactLabel:odooTasks.filter(function(t){return norm(t.task)===entered});
   var p=projById(localProjectId);
   var candidates=sameDescription.filter(function(t){
     if(!p)return true;
@@ -787,7 +791,7 @@ $('#list').addEventListener('click',function(ev){
   var act=b.getAttribute('data-act');
   if(act==='toggle'){
     if(e.end==null){stopRunning();$('#tDesc').value='';save();render()}
-    else{startEntry(e.desc,e.projectId)}
+    else{startEntry(e.desc,e.projectId,e.odooTaskId)}
   }else if(act==='edit'){openEntry(e)}
   else if(act==='del'){
     if(confirm('Excluir esta atividade?')){state.entries=state.entries.filter(function(x){return x.id!==e.id});save();render()}
@@ -837,6 +841,7 @@ function openEntry(e){
   $('#eDesc').value=e?e.desc:'';
   $('#eProj').innerHTML=projectOptions(e?e.projectId:'');comboSync('eProj');
   $('#eDate').value=e?dayKey(e.start):sel;
+  $('#eDate').dataset.previousValue=$('#eDate').value;
   $('#eStart').value=e?hms(e.start):'09:00:00';
   var live=e&&e.end==null;
   $('#eEndDate').value=e&&!live?dayKey(e.end):(e?dayKey(e.start):sel);
