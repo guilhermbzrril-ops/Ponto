@@ -900,10 +900,16 @@ $('#odooExportGo').addEventListener('click',async function(){
     $('#odooExportStatus').textContent='A seleção mudou ou contém uma atividade em andamento. Atualize a lista e tente novamente.';return;
   }
   if(!confirm('Enviar '+ids.length+' registro(s) da data '+selectedDate+' ao Odoo? Registros vinculados serão atualizados, não recriados.'))return;
+  var beforeSignatures={};chosen.forEach(function(e){beforeSignatures[e.id]=exportSignature(e)});
   btn.disabled=true;$('#odooExportDate').disabled=true;$('#odooExportStatus').textContent='Enviando para o Odoo…';
   try{
     await flushNow();
-    var localDates={};ids.forEach(function(id){var e=entryById(id);if(e)localDates[id]=dayKey(e.start)});
+    // flushNow may reload DB state after a failed save; do not export stale or changed selections.
+    var afterFlush=ids.map(function(id){return entryById(id)});
+    if(afterFlush.some(function(e){return !e||e.end==null||dayKey(e.start)!==selectedDate||beforeSignatures[e.id]!==exportSignature(e)})){
+      throw new Error('Os dados mudaram durante o salvamento ou não puderam ser salvos. A exportação foi cancelada; recarregue a lista, confira as horas e tente novamente.');
+    }
+    var localDates={};afterFlush.forEach(function(e){localDates[e.id]=dayKey(e.start)});
     var timeZone=Intl.DateTimeFormat().resolvedOptions().timeZone;
     if(!timeZone)throw new Error('Não foi possível detectar o fuso horário do navegador.');
     var result=await sb.functions.invoke('odoo-timesheets',{body:{entry_ids:ids,local_dates:localDates,time_zone:timeZone}});
