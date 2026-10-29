@@ -981,7 +981,7 @@ async function loadOdooExportRows(){
       return true;
     }).map(function(e){return e.id}));
     var total=rows.reduce(function(a,e){return a+exportDuration(e)},0);
-    var cross=rows.filter(function(e){return e.end!=null&&dayKey(e.end-1)!==dayKey(e.start)}).length;
+    var cross=rows.filter(function(e){return e.end!=null&&dayKey(e.end)!==dayKey(e.start)}).length;
     $('#odooExportSummary').textContent=rows.length+' registros · '+total.toFixed(2)+' h · data Odoo: '+date+'.'+
       (cross?' '+cross+' atividade(s) cruza(m) a meia-noite; a duração inteira será registrada no dia de início.':'');
     $('#odooExportRows').innerHTML=rows.length?rows.map(function(e){
@@ -991,7 +991,7 @@ async function loadOdooExportRows(){
       var needsManualReview=st.status==='needs_review'&&saved&&!saved.odoo_line_id;
       var disabled=live||st.status==='exporting'||needsManualReview?' disabled':'';
       var err=saved;
-      var crosses=e.end!=null&&dayKey(e.end-1)!==dayKey(e.start);
+      var crosses=e.end!=null&&dayKey(e.end)!==dayKey(e.start);
       return '<div class="export-row" style="padding:10px 0;border-bottom:1px solid var(--line)">'+
         '<label style="display:flex;gap:10px;align-items:flex-start">'+
         '<input type="checkbox" data-export-entry="'+esc(e.id)+'"'+checked+disabled+' style="margin-top:4px">'+
