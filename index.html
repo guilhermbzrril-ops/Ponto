@@ -385,6 +385,7 @@ var SUPABASE_KEY='sb_publishable_6qKuHStezjK4YauR7DgsAQ_FGEn43re';
 var sb=null,currentUid,currentUser=null;
 var snapP=new Map(),snapE=new Map(),chain=Promise.resolve(),flushTimer=null;
 var state={projects:[],entries:[],prefs:{group:true,theme:''}};
+var selectedOdooTaskId=null,editingOdooTaskId=null;
 var sel='';            // dia selecionado (YYYY-MM-DD)
 var editingId=null;    // id da atividade em edição (null = nova)
 var PALETTE=['#4aa3ff','#3ecf9a','#f2b134','#ff6b6b','#b084f5','#ff8fd0','#2ec4d6','#9ac93e','#ff9a4a','#8e9ca6'];
@@ -436,9 +437,9 @@ function durSec(e){return ((e.end==null?Date.now():e.end)-e.start)/1000}
 
 /* ---------- ações ---------- */
 function stopRunning(){var r=running();if(r){r.end=Math.max(Date.now(),r.start)}}
-function startEntry(desc,projectId){
+function startEntry(desc,projectId,odooTaskId){
   stopRunning();
-  state.entries.push({id:uid(),desc:desc||'',projectId:projectId||null,start:Date.now(),end:null});
+  state.entries.push({id:uid(),desc:desc||'',projectId:projectId||null,start:Date.now(),end:null,odooTaskId:odooTaskId==null?null:Number(odooTaskId)});
   sel=dayKey(Date.now());
   save();render();
 }
@@ -466,6 +467,7 @@ function renderTimer(){
   if(r){
     if(document.activeElement!==$('#tDesc'))$('#tDesc').value=r.desc;
     $('#tProj').value=r.projectId||'';
+    selectedOdooTaskId=r.odooTaskId==null?null:r.odooTaskId;
   }
   var seen={},h='';
   state.entries.forEach(function(e){if(e.desc&&!seen[e.desc]){seen[e.desc]=1;h+='<option value="'+esc(e.desc)+'">'}});
@@ -683,11 +685,43 @@ $('#tGo').addEventListener('click',toggleTimer);
 $('#tDesc').addEventListener('keydown',function(ev){if(ev.key==='Enter')toggleTimer()});
 function toggleTimer(){
   var r=running();
-  if(r){stopRunning();$('#tDesc').value='';save();render();return}
-  startEntry($('#tDesc').value.trim(),$('#tProj').value);
+  if(r){stopRunning();$('#tDesc').value='';selectedOdooTaskId=null;save();render();return}
+  var task=resolveOdooTask($('#tDesc').value.trim(),$('#tProj').value,selectedOdooTaskId);
+  startEntry($('#tDesc').value.trim(),$('#tProj').value,task?task.taskId:selectedOdooTaskId);
 }
-$('#tDesc').addEventListener('input',function(){var r=running();if(r){r.desc=this.value;save()}});
-function odooTaskLabel(t){return t.project?t.task+'  ⟦'+t.project+'⟧':t.task}
+$('#tDesc').addEventListener('input',function(){
+  var selected=odooTaskById(selectedOdooTaskId);
+  if(selected&&norm(selected.task)!==norm(this.value.trim()))selectedOdooTaskId=null;
+  var r=running();
+  if(r){r.desc=this.value;r.odooTaskId=selectedOdooTaskId==null?null:Number(selectedOdooTaskId);save()}
+});
+function odooTaskLabel(t){
+  var sameName=odooTasks.filter(function(x){return norm(x.task)===norm(t.task)});
+  var sameProject=odooTasks.filter(function(x){return norm(x.task)===norm(t.task)&&String(x.projectId||'')===String(t.projectId||'')});
+  var dupAcrossProjects=sameName.length>1,dupInProject=sameProject.length>1;
+  var project=t.project||'';
+  if(t.projectId!=null&&(dupAcrossProjects||dupInProject))project+=' · Project #'+t.projectId;
+  if(dupInProject&&t.taskId!=null)project+=(project?' · ':'')+'Task #'+t.taskId;
+  return project?t.task+'  ⟦'+project+'⟧':(dupAcrossProjects&&t.taskId!=null?t.task+'  ⟦Task #'+t.taskId+'⟧':t.task);
+}
+function odooTaskById(id){
+  if(id==null)return null;
+  return odooTasks.find(function(t){return t.taskId!=null&&String(t.taskId)===String(id)})||null;
+}
+function resolveOdooTask(description,localProjectId,preferredId){
+  var sameDescription=odooTasks.filter(function(t){return norm(t.task)===norm(description)});
+  var p=projById(localProjectId);
+  var candidates=sameDescription.filter(function(t){
+    if(!p)return true;
+    if(p.odooProjectId!=null&&t.projectId!=null)return String(p.odooProjectId)===String(t.projectId);
+    return norm(t.project)===norm(p.name)||!t.project;
+  });
+  if(preferredId!=null){
+    var preferred=candidates.find(function(t){return String(t.taskId)===String(preferredId)});
+    if(preferred)return preferred;
+  }
+  return candidates.length===1?candidates[0]:null;
+}
 $('#tDesc').addEventListener('change',function(){
   var value=this.value.trim();
   var exact=odooTasks.filter(function(t){return norm(odooTaskLabel(t))===norm(value)});
@@ -695,16 +729,29 @@ $('#tDesc').addEventListener('change',function(){
   var match=exact.length===1?exact[0]:(plain.length===1?plain[0]:null);
   if(match){
     this.value=match.task;
-    var p=match.project?state.projects.find(function(x){return norm(x.name)===norm(match.project)}):null;
-    $('#tProj').value=p?p.id:'';
+    selectedOdooTaskId=match.taskId==null?null:Number(match.taskId);
+    var p=match.projectId!=null?state.projects.find(function(x){return String(x.odooProjectId||'')===String(match.projectId)}):null;
+    if(!p&&match.project){
+      var candidates=state.projects.filter(function(x){return norm(x.name)===norm(match.project)});
+      if(candidates.length===1)p=candidates[0];
+    }
+    if(p)$('#tProj').value=p.id;
     comboSync('tProj');
   }else if(plain.length>1){
-    toast('Essa tarefa existe em vários projetos. Escolha a sugestão com o nome do projeto.');
+    selectedOdooTaskId=null;
+    toast('Essa tarefa existe em vários projetos. Escolha a sugestão identificada pelo projeto/ID.');
+  }else{
+    selectedOdooTaskId=null;
   }
   var r=running();
-  if(r){r.desc=this.value.trim();r.projectId=$('#tProj').value||null;save();renderList();tick()}
+  if(r){r.desc=this.value.trim();r.projectId=$('#tProj').value||null;r.odooTaskId=selectedOdooTaskId;save();renderList();tick()}
 });
-$('#tProj').addEventListener('change',function(){tintSelect();var r=running();if(r){r.projectId=this.value||null;save();renderList();tick()}});
+$('#tProj').addEventListener('change',function(){
+  tintSelect();
+  var r=running(),task=resolveOdooTask(r?r.desc:$('#tDesc').value,this.value,selectedOdooTaskId);
+  selectedOdooTaskId=task?Number(task.taskId):null;
+  if(r){r.projectId=this.value||null;r.odooTaskId=selectedOdooTaskId;save();renderList();tick()}
+});
 
 /* ---------- eventos: dia ---------- */
 function shiftDay(n){var d=new Date(sel+'T00:00:00');d.setDate(d.getDate()+n);sel=dayKey(d.getTime());render()}
@@ -1089,7 +1136,7 @@ $$('dialog').forEach(function(dlg){
 
 /* ---------- sincronização com o Supabase ---------- */
 function projRow(p){return {id:p.id,name:p.name,client:p.client||'',color:validColor(p.color)||'#4aa3ff',odoo_project_id:p.odooProjectId||null}}
-function entRow(e){return {id:e.id,project_id:e.projectId||null,description:e.desc||'',started_at:new Date(e.start).toISOString(),ended_at:e.end==null?null:new Date(e.end).toISOString()}}
+function entRow(e){return {id:e.id,project_id:e.projectId||null,description:e.desc||'',started_at:new Date(e.start).toISOString(),ended_at:e.end==null?null:new Date(e.end).toISOString(),odoo_task_id:e.odooTaskId||null}}
 async function chk(q){var r=await q;if(r.error)throw r.error;return r}
 async function fetchAll(table,cols,orderCol){
   var out=[],from=0,size=1000;
@@ -1106,9 +1153,9 @@ async function loadAll(){
   if(!sb||!currentUid)return;
   try{
     var ps=await fetchAll('projects','id,name,client,color,odoo_project_id','created_at');
-    var es=await fetchAll('entries','id,project_id,description,started_at,ended_at','started_at');
+    var es=await fetchAll('entries','id,project_id,description,started_at,ended_at,odoo_task_id','started_at');
     state.projects=ps.map(function(r){return {id:r.id,name:r.name,client:r.client||'',color:r.color,odooProjectId:r.odoo_project_id||null}});
-    state.entries=es.map(function(r){return {id:r.id,projectId:r.project_id,desc:r.description||'',start:Date.parse(r.started_at),end:r.ended_at?Date.parse(r.ended_at):null}});
+    state.entries=es.map(function(r){return {id:r.id,projectId:r.project_id,desc:r.description||'',start:Date.parse(r.started_at),end:r.ended_at?Date.parse(r.ended_at):null,odooTaskId:r.odoo_task_id==null?null:Number(r.odoo_task_id)}});
     snapP=new Map();snapE=new Map();
     state.projects.forEach(function(p){snapP.set(p.id,JSON.stringify(projRow(p)))});
     state.entries.forEach(function(e){snapE.set(e.id,JSON.stringify(entRow(e)))});
