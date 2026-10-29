@@ -289,7 +289,7 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
   <div class="db">
     <div class="field"><label for="odooExportDate">Dia dos registros</label><input type="date" id="odooExportDate"></div>
     <div id="odooExportSummary" class="hint">Carregando registros…</div>
-    <label style="display:flex;gap:6px;align-items:center;justify-content:flex-end;margin:6px 0 8px;font-size:12px;color:var(--muted)"><input type="checkbox" id="odooExportForceUpdate" style="margin:0" checked><span><strong style="font-size:12px;font-weight:500">Forçar atualização no Odoo</strong> <small class="hint">(write nas linhas existentes)</small></span></label>
+    <label style="display:none"><input type="checkbox" id="odooExportForceUpdate" checked></label>
     <div id="odooExportRows" class="plist"></div>
     <div class="df"><button class="btn" data-close>Cancelar</button><button class="btn primary" id="odooExportGo">Enviar selecionados</button></div>
     <p class="hint" id="odooExportStatus">Revise os registros antes de enviar. Registros já exportados serão atualizados, não duplicados.</p>
