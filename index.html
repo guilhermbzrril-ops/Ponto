@@ -1117,17 +1117,26 @@ async function importOdooTasks(){
       .filter(function(p){return p&&p.project_id!=null&&typeof p.project==='string'&&p.project.trim()})
       .map(function(p){return {projectId:Number(p.project_id),project:p.project.trim()}})
       .filter(function(p,i,all){return all.findIndex(function(x){return x.projectId===p.projectId})===i});
-    var importedProjects=[],seenOdooProjects={};
+    var odooProjectDirectory=[],seenDirectory={};
     remoteProjects.concat(clean.filter(function(t){return t.project&&t.projectId!=null}).map(function(t){return {projectId:t.projectId,project:t.project}}))
       .forEach(function(p){
         var id=String(p.projectId);
-        if(!seenOdooProjects[id]){seenOdooProjects[id]=1;importedProjects.push({projectId:Number(p.projectId),project:p.project})}
+        if(!seenDirectory[id]){seenDirectory[id]=1;odooProjectDirectory.push({projectId:Number(p.projectId),project:p.project})}
       });
+    // Only create/link OXFY projects that appear in the imported task set.
+    // Keep the full Odoo project directory for the mapping dropdown, without flooding OXFY with every remote project.
+    var importedProjects=[],seenTaskProjects={};
+    clean.filter(function(t){return t.project&&t.projectId!=null}).forEach(function(t){
+      var id=String(t.projectId);
+      if(!seenTaskProjects[id]){seenTaskProjects[id]=1;importedProjects.push({projectId:Number(t.projectId),project:t.project})}
+    });
+    var remoteProjectNameCounts=Object.create(null);
+    odooProjectDirectory.forEach(function(p){var key=norm(p.project);remoteProjectNameCounts[key]=(remoteProjectNameCounts[key]||0)+1});
     var addedProjects=0,linkedProjects=0;
     importedProjects.forEach(function(remote){
       var remoteId=String(remote.projectId);
       if(state.projects.some(function(p){return String(p.odooProjectId||'')===remoteId}))return;
-      var sameRemoteName=importedProjects.filter(function(x){return norm(x.project)===norm(remote.project)}).length;
+      var sameRemoteName=remoteProjectNameCounts[norm(remote.project)]||1;
       var unlinked=state.projects.filter(function(p){return !p.odooProjectId&&norm(p.name)===norm(remote.project)});
       if(sameRemoteName===1&&unlinked.length===1){
         unlinked[0].odooProjectId=remote.projectId;linkedProjects++;
@@ -1145,7 +1154,7 @@ async function importOdooTasks(){
     });
     odooTasks=clean;
     rebuildOdooTaskCounts();
-    odooProjects=importedProjects;
+    odooProjects=odooProjectDirectory;
     try{
       localStorage.setItem(ODOO_TASKS_KEY,JSON.stringify(odooTasks));
       localStorage.setItem(ODOO_PROJECTS_KEY,JSON.stringify(odooProjects));
