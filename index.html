@@ -292,6 +292,10 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
     <div id="odooExportRows" class="plist"></div>
     <div class="df"><button class="btn" data-close>Cancelar</button><button class="btn" id="odooExportRefresh" type="button">Atualizar dados</button><button class="btn primary" id="odooExportGo">Enviar selecionados</button></div>
     <p class="hint" id="odooExportStatus">Revise os registros antes de enviar. Registros já exportados serão atualizados, não duplicados.</p>
+    <details id="odooExportDebug" open style="border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--bg)">
+      <summary style="cursor:pointer;font-weight:700">Diagnóstico detalhado</summary>
+      <pre id="odooExportDebugText" style="white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,Consolas,monospace;margin:10px 0 0;color:var(--text)">Aguardando leitura dos registros…</pre>
+    </details>
   </div>
 </dialog>
 
@@ -1021,8 +1025,13 @@ async function loadOdooExportRows(){
     }).map(function(e){return e.id}));
     var total=rows.reduce(function(a,e){return a+exportDuration(e)},0);
     var cross=rows.filter(crossesLocalMidnight).length;
-    $('#odooExportSummary').textContent=rows.length+' registros · '+total.toFixed(2)+' h mostradas · data do Odoo: '+date+'.'+
-      (cross?' '+cross+' atividade(s) cruza(m) a meia-noite e está(ão) bloqueada(s). Divida cada atividade à meia-noite e exporte cada dia separadamente.':'');
+    var liveCount=rows.filter(function(e){return e.end==null}).length;
+    var syncedCount=rows.filter(function(e){return exportStatusFor(e).status==='synced'}).length;
+    var reviewCount=rows.filter(function(e){return exportStatusFor(e).status==='needs_review'}).length;
+    var errorCount=rows.filter(function(e){return exportStatusFor(e).status==='error'}).length;
+    var pendingCount=rows.filter(function(e){return ['pending','changed'].includes(exportStatusFor(e).status)&&e.end!=null&&!crossesLocalMidnight(e)}).length;
+    $('#odooExportSummary').textContent=rows.length+' registros encontrados · '+total.toFixed(2)+' h somadas · '+pendingCount+' disponíveis para envio · '+syncedCount+' sincronizados · '+liveCount+' em andamento · '+cross+' cruzam meia-noite · '+reviewCount+' para revisão · '+errorCount+' com erro. Data OXFY/Odoo: '+date+'.';
+    $('#odooExportDebugText').textContent='Atualizado: '+new Date().toLocaleString()+'\\nUsuário OXFY: '+(sb.auth&&currentUserEmail?currentUserEmail:'sessão autenticada')+'\\nData selecionada: '+date+'\\nRegistros do dia: '+rows.length+'\\nDisponíveis: '+pendingCount+' | Sincronizados: '+syncedCount+' | Em andamento: '+liveCount+' | Meia-noite: '+cross+' | Revisão: '+reviewCount+' | Erros: '+errorCount+'\\n\\nLEGENDA: “Pendente” significa que ainda não há linha vinculada no controle do OXFY; não confirma que o Odoo recebeu a hora. “Sincronizado” significa que existe uma linha Odoo vinculada no controle. Confira a mensagem de cada atividade abaixo.';
     $('#odooExportRows').innerHTML=rows.length?rows.map(function(e){
       var st=exportStatusFor(e),p=projById(e.projectId),live=e.end==null;
       var checked=odooExportSelection.has(e.id)?' checked':'';
@@ -1037,7 +1046,8 @@ async function loadOdooExportRows(){
         '<input type="checkbox" data-export-entry="'+esc(e.id)+'"'+checked+disabled+' style="margin-top:4px">'+
         '<span style="flex:1;min-width:0"><strong>'+esc(e.desc||'(sem descrição)')+'</strong><br><span class="hint">'+esc(p?p.name:'Sem projeto')+' · '+hm(e.start)+'–'+(live?'em andamento':hm(e.end))+' · '+exportDuration(e).toFixed(2)+' h</span>'+
         (crosses?'<br><span class="hint">Bloqueado: cruza a meia-noite. Divida em duas atividades para exportar cada parte no dia correto.</span>':'')+
-        '<br><span class="hint">'+esc(st.label)+(err&&err.last_error?' — '+esc(err.last_error):'')+'</span></span></label>'+
+        '<br><span class="hint"><strong>'+esc(st.label)+'</strong>'+(err&&err.last_error?' — '+esc(err.last_error):'')+'</span>'+
+        '<br><span class="hint">Diagnóstico: '+esc((function(){var notes=[];if(live)notes.push('timer ainda em andamento');if(crosses)notes.push('bloqueado: cruza meia-noite');if(!e.projectId)notes.push('sem projeto OXFY');else if(!p)notes.push('projeto não encontrado na lista local');else if(!p.odooProjectId)notes.push('projeto sem ID Odoo salvo; o servidor tentará localizar pelo nome exato');if(!e.odooTaskId)notes.push(e.desc?'sem ID de tarefa Odoo salvo; o servidor tentará localizar uma tarefa com nome exato igual à descrição':'sem descrição/ID de tarefa: pode falhar na resolução da tarefa');if(!e.end)notes.push('sem horário final');else if(exportDuration(e)<=0)notes.push('duração inválida ou zero');if(st.status==='synced')notes.push('linha Odoo vinculada: '+(err&&err.odoo_line_id||'ID não disponível'));if(!err)notes.push('nenhum registro de exportação salvo ainda');if(err&&err.status==='error')notes.push('falha segura para nova tentativa: '+String(err.retry_safe));if(err&&err.status==='needs_review')notes.push('não repetir sem conferir no Odoo');return notes.join('; ')||'nenhum bloqueio local óbvio; revise o status do envio';})())+'</span></span></label>'+
         (needsManualReview?'<div style="margin:8px 0 0 28px"><button type="button" class="btn" data-export-unblock="'+esc(e.id)+'">Conferi no Odoo — liberar nova tentativa</button><p class="hint">Use somente depois de confirmar no Odoo que a linha não foi criada.</p></div>':'')+
         '</div>';
     }).join(''):'<p class="hint">Nenhum registro neste dia.</p>';
@@ -1130,8 +1140,9 @@ $('#odooExportGo').addEventListener('click',async function(){
     var ok=outcomes.filter(function(x){return x.status==='synced'}).length;
     var skipped=outcomes.filter(function(x){return x.status==='skipped'}).length;
     var fail=outcomes.filter(function(x){return x.status!=='synced'&&x.status!=='skipped'}).length;
-    var message=ok+' registro(s) sincronizado(s)'+(skipped?'; '+skipped+' ignorado(s) por estarem sincronizados/em revisão ou em outro envio':'')+(fail?'; '+fail+' erro(s)/revisão necessária(s). Veja o status de cada linha.':'.');
+    var message=ok+' sincronizado(s)'+(skipped?'; '+skipped+' ignorado(s)':'')+(fail?'; '+fail+' erro(s)/revisão necessária(s)':'.');
     $('#odooExportStatus').textContent=message;
+    $('#odooExportDebugText').textContent='ÚLTIMA TENTATIVA: '+new Date().toLocaleString()+'\\nData: '+selectedDate+'\\nSelecionados: '+ids.length+'\\nSincronizados: '+ok+' | Ignorados: '+skipped+' | Erros/revisão: '+fail+'\\n\\n'+outcomes.map(function(x){var entry=entryById(x.entry_id);return '['+String(x.status||'sem status').toUpperCase()+'] '+(entry?(entry.desc||'(sem descrição)')+' | '+hm(entry.start)+'–'+hm(entry.end)+' | '+(projById(entry.projectId)?.name||'Sem projeto'):'Atividade '+x.entry_id)+'\\nID atividade: '+x.entry_id+'\\nMotivo/erro: '+(x.reason||x.error||x.message||'Nenhum motivo retornado')+'\\nStatus atual no servidor: '+(x.current_status||'não informado');}).join('\\n\\n')+'\\n\\nSe uma atividade foi ignorada, leia o motivo acima. “Sincronizado” só é exibido quando a API confirma a operação e o controle do OXFY salva o vínculo.';
     await loadOdooExportRows();
     if(fail)toast('Exportação parcial: confira os erros e os casos para revisão.');
     else if(skipped)toast('Alguns registros foram ignorados; confira o status.');
