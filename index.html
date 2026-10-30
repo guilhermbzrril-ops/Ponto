@@ -1099,7 +1099,13 @@ $('#odooExportGo').addEventListener('click',async function(){
     afterFlush.forEach(function(e){localDates[e.id]=dayKey(e.start);entrySignatures[e.id]=exportSignature(e)});
     var timeZone=Intl.DateTimeFormat().resolvedOptions().timeZone;
     if(!timeZone)throw new Error('Não foi possível detectar o fuso horário do navegador.');
-    var result=await sb.functions.invoke('odoo-timesheets',{body:{
+    // Refresh the Supabase session immediately before export and explicitly pass its access token.
+    var authResult=await sb.auth.refreshSession();
+    if(authResult.error||!authResult.data||!authResult.data.session||!authResult.data.session.access_token){
+      throw new Error('Sua sessão expirou. Saia da conta e entre novamente antes de exportar.');
+    }
+    var accessToken=authResult.data.session.access_token;
+    var result=await sb.functions.invoke('odoo-timesheets',{headers:{Authorization:'Bearer '+accessToken},body:{
       entry_ids:ids,selected_date:selectedDate,local_dates:localDates,
       time_zone:timeZone,entry_signatures:entrySignatures
     }});
